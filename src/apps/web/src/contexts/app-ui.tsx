@@ -108,7 +108,6 @@ const DESKTOP_SETTINGS_KEYS = new Set<DesktopSettingsKey>([
   'activityRecorder',
   'connection',
   'chat',
-  'modules',
   'extensions',
   'developer',
   'design-tokens',

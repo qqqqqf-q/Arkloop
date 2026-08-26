@@ -49,7 +49,7 @@ func TestResolveProviderAllowlistSkipsProviderManagedGroupWithoutActiveProvider(
 			RiskLevel:   tools.RiskLevelLow,
 		},
 		{
-			Name:        "web_search.searxng",
+			Name:        "web_search.exa",
 			LlmName:     "web_search",
 			Version:     "1",
 			Description: "x",
@@ -62,8 +62,8 @@ func TestResolveProviderAllowlistSkipsProviderManagedGroupWithoutActiveProvider(
 	}
 
 	allow := map[string]struct{}{
-		"web_search.tavily":  {},
-		"web_search.searxng": {},
+		"web_search.tavily": {},
+		"web_search.exa":    {},
 	}
 
 	resolved, err := pipeline.ResolveProviderAllowlist(allow, registry, nil)

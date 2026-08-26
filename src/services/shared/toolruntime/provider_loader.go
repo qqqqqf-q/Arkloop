@@ -231,8 +231,6 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		return ProviderRuntimeStateReady, ""
 	case "web_search.exa":
 		return ProviderRuntimeStateReady, ""
-	case "web_search.searxng":
-		return validateInternalBaseURL(status.BaseURL)
 	case "web_search.basic":
 		return ProviderRuntimeStateReady, ""
 	case "x_search.xai":
@@ -242,8 +240,6 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		return ProviderRuntimeStateReady, ""
 	case "web_fetch.jina":
 		return ProviderRuntimeStateReady, ""
-	case "web_fetch.firecrawl":
-		return validateInternalBaseURL(status.BaseURL)
 	case "web_fetch.basic":
 		return ProviderRuntimeStateReady, ""
 	case "read.minimax":
@@ -279,16 +275,6 @@ func validateBaseURL(baseURL *string) (ProviderRuntimeState, string) {
 		return ProviderRuntimeStateMissingConfig, "missing_base_url"
 	}
 	if _, err := sharedoutbound.DefaultPolicy().NormalizeBaseURL(strings.TrimSpace(*baseURL)); err != nil {
-		return ProviderRuntimeStateInvalidConfig, "invalid_base_url"
-	}
-	return ProviderRuntimeStateReady, ""
-}
-
-func validateInternalBaseURL(baseURL *string) (ProviderRuntimeState, string) {
-	if blankPtr(baseURL) {
-		return ProviderRuntimeStateMissingConfig, "missing_base_url"
-	}
-	if _, err := sharedoutbound.DefaultPolicy().NormalizeInternalBaseURL(strings.TrimSpace(*baseURL)); err != nil {
 		return ProviderRuntimeStateInvalidConfig, "invalid_base_url"
 	}
 	return ProviderRuntimeStateReady, ""

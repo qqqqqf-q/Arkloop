@@ -35,15 +35,6 @@ var AgentSpec = tools.AgentToolSpec{
 	SideEffects: false,
 }
 
-var AgentSpecSearxng = tools.AgentToolSpec{
-	Name:        "web_search.searxng",
-	LlmName:     "web_search",
-	Version:     "1",
-	Description: "search the internet and return summary results",
-	RiskLevel:   tools.RiskLevelLow,
-	SideEffects: false,
-}
-
 var AgentSpecTavily = tools.AgentToolSpec{
 	Name:        "web_search.tavily",
 	LlmName:     "web_search",
@@ -102,7 +93,6 @@ var LlmSpec = llm.ToolSpec{
 }
 
 var LlmSpecBasic = LlmSpec
-var LlmSpecSearxng = LlmSpec
 var LlmSpecTavily = LlmSpec
 
 var LlmSpecExa = llm.ToolSpec{
@@ -134,8 +124,6 @@ func ProviderLlmSpec(providerName string) (llm.ToolSpec, bool) {
 		return LlmSpecBasic, true
 	case AgentSpecTavily.Name:
 		return LlmSpecTavily, true
-	case AgentSpecSearxng.Name:
-		return LlmSpecSearxng, true
 	case AgentSpecExa.Name:
 		return LlmSpecExa, true
 	default:
@@ -149,10 +137,6 @@ type ToolExecutor struct {
 }
 
 func NewToolExecutor(_ any) *ToolExecutor {
-	return &ToolExecutor{timeout: defaultTimeout}
-}
-
-func NewSearxngExecutor(_ any) *ToolExecutor {
 	return &ToolExecutor{timeout: defaultTimeout}
 }
 

@@ -42,10 +42,9 @@ describe('desktop connectors API', () => {
             providers: [
               { provider_name: 'web_fetch.basic', is_active: false },
               {
-                provider_name: 'web_fetch.firecrawl',
+                provider_name: 'web_fetch.jina',
                 is_active: true,
-                key_prefix: 'fc-123456789',
-                base_url: 'https://firecrawl.local',
+                key_prefix: 'jina-12345678',
               },
             ],
           },
@@ -66,10 +65,9 @@ describe('desktop connectors API', () => {
     const config = await api!.get()
     expect(config).toMatchObject({
       fetch: {
-        provider: 'firecrawl',
-        firecrawlApiKey: 'fc-123456789',
-        firecrawlApiKeyStored: true,
-        firecrawlBaseUrl: 'https://firecrawl.local',
+        provider: 'jina',
+        jinaApiKey: 'jina-12345678',
+        jinaApiKeyStored: true,
       },
       search: {
         provider: 'tavily',
@@ -148,10 +146,9 @@ describe('desktop connectors API', () => {
 
     await api!.set({
       fetch: {
-        provider: 'firecrawl',
-        firecrawlApiKey: 'fc-123456789',
-        firecrawlApiKeyStored: true,
-        firecrawlBaseUrl: 'https://firecrawl.local',
+        provider: 'jina',
+        jinaApiKey: 'jina-12345678',
+        jinaApiKeyStored: true,
       },
       search: {
         provider: 'exa',
@@ -165,9 +162,7 @@ describe('desktop connectors API', () => {
       .filter(([url]) => String(url).endsWith('/credential?scope=platform'))
       .map(([, init]) => JSON.parse(String(init?.body ?? '{}')) as Record<string, string>)
 
-    expect(credentialBodies).toEqual([
-      { base_url: 'https://firecrawl.local' },
-    ])
+    expect(credentialBodies).toEqual([])
   })
 
   it('activates exa without credential writes', async () => {

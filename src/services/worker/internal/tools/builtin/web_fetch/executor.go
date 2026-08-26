@@ -52,15 +52,6 @@ var AgentSpecJina = tools.AgentToolSpec{
 	SideEffects: false,
 }
 
-var AgentSpecFirecrawl = tools.AgentToolSpec{
-	Name:        "web_fetch.firecrawl",
-	LlmName:     "web_fetch",
-	Version:     "1",
-	Description: "fetch web page content and extract body text",
-	RiskLevel:   tools.RiskLevelMedium,
-	SideEffects: false,
-}
-
 var AgentSpecBasic = tools.AgentToolSpec{
 	Name:        "web_fetch.basic",
 	LlmName:     "web_fetch",
@@ -94,10 +85,6 @@ func NewToolExecutor(_ any) *ToolExecutor {
 }
 
 func NewBasicExecutor(_ any) *ToolExecutor {
-	return &ToolExecutor{timeout: defaultTimeout}
-}
-
-func NewFirecrawlExecutor(_ any) *ToolExecutor {
 	return &ToolExecutor{timeout: defaultTimeout}
 }
 

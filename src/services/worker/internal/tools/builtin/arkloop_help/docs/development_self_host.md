@@ -6,7 +6,6 @@
 
 - **Go**：1.26+（仓库根 `go.work` 统一管理 `src/services/` 下各模块）
 - **Node**：20+，包管理 **pnpm**（仓库根 `pnpm install`）
-- **Docker Compose**：仅用于可选模块（SearXNG / Firecrawl），不是运行主程序的前提
 - `.env`：从 **`.env.example`** 复制，按需填写；桌面/单机默认配置通常开箱即用（SQLite 自动迁移）
 
 ## 从源码运行（两种路径）
@@ -27,7 +26,7 @@ cd src/apps/web && pnpm build            # 先构建 Web 前端产物
 go run ./src/services/cli/cmd/ark web    # 从仓库根目录启动本地运行时
 ```
 
-`ark web` 会自动发现 `src/apps/web/dist` 并对外提供 Web 界面与本地 API（默认 **web 19080 / api 19001 / bridge 19003**，可用 `--port` / `--api-port` / `--bridge-port` 覆盖）。数据落在 `~/.arkloop`（`ARKLOOP_DATA_DIR` 可覆盖），首次启动自动完成 SQLite 迁移。
+`ark web` 会自动发现 `src/apps/web/dist` 并对外提供 Web 界面与本地 API（默认 **web 19080 / api 19001**，可用 `--port` / `--api-port` 覆盖）。数据落在 `~/.arkloop`（`ARKLOOP_DATA_DIR` 可覆盖），首次启动自动完成 SQLite 迁移。
 
 ### 仅前端开发
 
@@ -36,17 +35,6 @@ cd src/apps/web && pnpm dev
 ```
 
 Vite 开发服务器（默认 **5173**）将 `/v1` 代理到本地 API（默认 **19001**）——需先有路径二启动的运行时。
-
-## 可选模块（Docker）
-
-根目录 `compose.yaml` 只含可选模块，经 profile 启用：
-
-```bash
-docker compose --profile searxng up -d          # 自托管搜索（web_search provider）
-docker compose --profile firecrawl up -d        # 自托管抓取（web_fetch provider）
-```
-
-模块由 Bridge 管理；不启用这些 profile 时主程序照常运行。
 
 ## 测试
 

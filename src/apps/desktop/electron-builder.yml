@@ -15,16 +15,6 @@ extraResources:
     to: renderer
     filter:
       - "**/*"
-  - from: ../../../compose.yaml
-    to: arkloop-project/compose.yaml
-  - from: ../../../install/modules.yaml
-    to: arkloop-project/install/modules.yaml
-  - from: ../../../config/searxng
-    to: arkloop-project/config/searxng
-  - from: ../../../config/firecrawl-postgres
-    to: arkloop-project/config/firecrawl-postgres
-  - from: ../../../src/services/shared
-    to: arkloop-project/src/services/shared
   - from: ../../../src/personas
     to: arkloop-project/src/personas
   - from: ../../../src/skills

@@ -3,7 +3,6 @@ go 1.26.0
 use (
 	./src/services/activity-record
 	./src/services/api
-	./src/services/bridge
 	./src/services/cli
 	./src/services/desktop
 	./src/services/shared

@@ -1,24 +1,20 @@
 export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
 export type LocalPortMode = 'auto' | 'manual'
 
-export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
-export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
+export type FetchProvider = 'none' | 'jina' | 'basic'
+export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa'
 export type XSearchProvider = 'none' | 'xai_oauth' | 'xai_api_key'
 
 export type FetchConnectorConfig = {
   provider: FetchProvider
   jinaApiKey?: string
   jinaApiKeyStored?: boolean
-  firecrawlApiKey?: string
-  firecrawlApiKeyStored?: boolean
-  firecrawlBaseUrl?: string
 }
 
 export type SearchConnectorConfig = {
   provider: SearchProvider
   tavilyApiKey?: string
   tavilyApiKeyStored?: boolean
-  searxngBaseUrl?: string
 }
 
 export type XSearchConnectorConfig = {

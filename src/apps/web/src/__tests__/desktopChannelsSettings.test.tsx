@@ -68,7 +68,6 @@ async function loadDesktopSettingsSubject() {
     ConnectionSettings: () => <div>connection</div>,
     ChatSettings: () => <div>chat</div>,
     ExtensionsSettings: () => <div>extensions</div>,
-    ModulesSettings: () => <div>modules</div>,
     DeveloperSettings: () => <div>developer</div>,
     ConnectorsSettings: () => <div>connectors</div>,
     VoiceSettings: () => <div>voice</div>,
@@ -86,7 +85,6 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../components/settings/ConnectionSettings', () => ({ ConnectionSettings: () => <div>connection</div> }))
   vi.doMock('../components/settings/ChatSettings', () => ({ ChatSettings: () => <div>chat</div> }))
   vi.doMock('../components/settings/ExtensionsSettings', () => ({ ExtensionsSettings: () => <div>extensions</div> }))
-  vi.doMock('../components/settings/ModulesSettings', () => ({ ModulesSettings: () => <div>modules</div> }))
   vi.doMock('../components/settings/DeveloperSettings', () => ({ DeveloperSettings: () => <div>developer</div> }))
   vi.doMock('../components/settings/VoiceSettings', () => ({ VoiceSettings: () => <div>voice</div> }))
   vi.doMock('../components/settings/DesignTokensSettings', () => ({ DesignTokensSettings: () => <div>design tokens</div> }))
@@ -149,7 +147,6 @@ afterEach(() => {
   vi.doUnmock('../api')
   vi.doUnmock('../storage')
   vi.doUnmock('../api-admin')
-  vi.doUnmock('../api-bridge')
   vi.doUnmock('@arkloop/shared/desktop')
   vi.doUnmock('../components/settings')
   vi.doUnmock('../components/settings/GeneralSettings')
@@ -164,7 +161,6 @@ afterEach(() => {
   vi.doUnmock('../components/settings/ConnectionSettings')
   vi.doUnmock('../components/settings/ChatSettings')
   vi.doUnmock('../components/settings/ExtensionsSettings')
-  vi.doUnmock('../components/settings/ModulesSettings')
   vi.doUnmock('../components/settings/DeveloperSettings')
   vi.doUnmock('../components/settings/VoiceSettings')
   vi.doUnmock('../components/settings/DesignTokensSettings')

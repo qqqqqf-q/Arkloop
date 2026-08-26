@@ -46,18 +46,12 @@ export class SidecarStartError extends Error {
 
 const HEALTH_POLL_MS = 500
 const HEALTH_TIMEOUT_MS = 30_000
-const BRIDGE_READY_POLL_MS = 400
-const BRIDGE_READY_ATTEMPTS = 40
 const MAX_RESTARTS = 3
 const MAX_AUTO_PORT_RETRIES = 6
 const AUTO_PORT_SCAN_WINDOW = 20
-const DEFAULT_BRIDGE_PORT = 19003
 const ARKLOOP_HOME = path.join(os.homedir(), '.arkloop')
 const SIDECAR_DIR = path.join(os.homedir(), '.arkloop', 'bin')
 const VERSION_FILE = path.join(os.homedir(), '.arkloop', 'bin', 'sidecar.version.json')
-const PACKAGED_PROJECT_DIR = path.join(ARKLOOP_HOME, 'project')
-const PACKAGED_PROJECT_STATE_FILE = path.join(PACKAGED_PROJECT_DIR, '.bundle-state.json')
-const PACKAGED_PROJECT_PRESERVED_FILES = new Set<string>()
 const DEFAULT_GITHUB_REPO = 'qqqqqf-q/Arkloop'
 const DEFAULT_DOWNLOAD_BASE = `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download`
 const GITHUB_API_LATEST_RELEASE = `https://api.github.com/repos/${DEFAULT_GITHUB_REPO}/releases/latest`
@@ -70,13 +64,11 @@ let restartCount = 0
 let stopping = false
 let statusListener: ((status: SidecarStatus) => void) | null = null
 let runtimeListener: ((runtime: SidecarRuntime) => void) | null = null
-let bridgeUrlListener: ((bridgeBaseUrl: string) => void) | null = null
 let runtime: SidecarRuntime = {
   status: 'stopped',
   port: null,
   portMode: 'auto',
 }
-let bridgeBaseUrl = `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
 let memoryConfig: MemoryConfig | null = null
 let networkConfig: NetworkConfig | null = null
 
@@ -100,10 +92,6 @@ export function getDesktopAccessToken(): string {
   return desktopAccessToken
 }
 
-export function getBridgeBaseUrl(): string {
-  return bridgeBaseUrl
-}
-
 export function setStatusListener(fn: (status: SidecarStatus) => void): void {
   statusListener = fn
 }
@@ -112,19 +100,10 @@ export function setRuntimeListener(fn: (runtime: SidecarRuntime) => void): void 
   runtimeListener = fn
 }
 
-export function setBridgeUrlListener(fn: (bridgeBaseUrl: string) => void): void {
-  bridgeUrlListener = fn
-}
-
 function setRuntime(patch: Partial<SidecarRuntime>): void {
   runtime = { ...runtime, ...patch }
   statusListener?.(runtime.status)
   runtimeListener?.({ ...runtime })
-}
-
-function setBridgeBaseUrl(nextBridgeBaseUrl: string): void {
-  bridgeBaseUrl = nextBridgeBaseUrl
-  bridgeUrlListener?.(bridgeBaseUrl)
 }
 
 function getSidecarBinaryName(): string {
@@ -464,63 +443,6 @@ function resolveBinaryPath(): string {
   return getBundledSidecarPath()
 }
 
-function resolveBundledProjectDir(): string | null {
-  if (!app.isPackaged) return null
-  const candidate = path.join(process.resourcesPath, 'arkloop-project')
-  if (!fs.existsSync(path.join(candidate, 'compose.yaml'))) return null
-  return ensureWritableBundledProjectDir(candidate)
-}
-
-type PackagedProjectState = {
-  version?: string
-}
-
-function readPackagedProjectState(): PackagedProjectState | null {
-  try {
-    return JSON.parse(fs.readFileSync(PACKAGED_PROJECT_STATE_FILE, 'utf-8')) as PackagedProjectState
-  } catch {
-    return null
-  }
-}
-
-function syncPackagedProjectTree(sourceDir: string, destDir: string, relDir = ''): void {
-  fs.mkdirSync(destDir, { recursive: true })
-  const entries = fs.readdirSync(sourceDir, { withFileTypes: true })
-  for (const entry of entries) {
-    const relPath = relDir ? path.join(relDir, entry.name) : entry.name
-    const sourcePath = path.join(sourceDir, entry.name)
-    const destPath = path.join(destDir, entry.name)
-
-    if (entry.isDirectory()) {
-      syncPackagedProjectTree(sourcePath, destPath, relPath)
-      continue
-    }
-
-    if (PACKAGED_PROJECT_PRESERVED_FILES.has(relPath) && fs.existsSync(destPath)) {
-      continue
-    }
-
-    fs.mkdirSync(path.dirname(destPath), { recursive: true })
-    fs.copyFileSync(sourcePath, destPath)
-  }
-}
-
-function ensureWritableBundledProjectDir(sourceDir: string): string {
-  const currentVersion = app.getVersion()
-  const currentState = readPackagedProjectState()
-  if (currentState?.version === currentVersion && isBridgeProjectDir(PACKAGED_PROJECT_DIR)) {
-    return PACKAGED_PROJECT_DIR
-  }
-
-  syncPackagedProjectTree(sourceDir, PACKAGED_PROJECT_DIR)
-  fs.writeFileSync(
-    PACKAGED_PROJECT_STATE_FILE,
-    JSON.stringify({ version: currentVersion, syncedAt: new Date().toISOString() }),
-    'utf-8',
-  )
-  return PACKAGED_PROJECT_DIR
-}
-
 function readEnvVar(name: string): string | null {
   const value = process.env[name]
   if (typeof value !== 'string') return null
@@ -545,13 +467,7 @@ function pathIsFile(target: string): boolean {
 }
 
 function isProjectDir(candidate: string): boolean {
-  return pathIsFile(path.join(candidate, 'compose.yaml')) && pathIsDirectory(path.join(candidate, 'src'))
-}
-
-// Bridge 只依赖 compose 工程根；不必有 monorepo 的 src/
-function isBridgeProjectDir(candidate: string): boolean {
-  return pathIsFile(path.join(candidate, 'compose.yaml'))
-    || pathIsFile(path.join(candidate, 'docker-compose.yml'))
+  return pathIsFile(path.join(candidate, 'go.work')) && pathIsDirectory(path.join(candidate, 'src'))
 }
 
 function resolveDevProjectDir(): string | null {
@@ -568,74 +484,23 @@ function resolveDevProjectDir(): string | null {
   return null
 }
 
-function discoverProjectDirFromDocker(): string | null {
-  try {
-    const out = execFileSync('docker', ['compose', 'ls', '-a', '--format', 'json'], {
-      encoding: 'utf-8',
-      timeout: 8000,
-      maxBuffer: 4 * 1024 * 1024,
-    })
-    const trimmed = out.trim()
-    if (!trimmed) return null
-
-    type ComposeLsRow = { Name?: string; ConfigFiles?: string }
-    const rows: ComposeLsRow[] = []
-    try {
-      const parsed = JSON.parse(trimmed) as unknown
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === 'object') rows.push(item as ComposeLsRow)
-        }
-      } else if (parsed && typeof parsed === 'object') {
-        rows.push(parsed as ComposeLsRow)
-      }
-    } catch {
-      for (const line of trimmed.split('\n')) {
-        if (!line.trim()) continue
-        try {
-          rows.push(JSON.parse(line) as ComposeLsRow)
-        } catch {
-          // skip bad line
-        }
-      }
-    }
-
-    const candidates: string[] = []
-    for (const row of rows) {
-      const files = row.ConfigFiles
-      if (typeof files !== 'string' || !files) continue
-      const first = files.split(',')[0]?.trim()
-      if (!first) continue
-      const dir = path.dirname(first)
-      if (!isBridgeProjectDir(dir)) continue
-      candidates.push(dir)
-    }
-
-    const unique = [...new Set(candidates)]
-    for (const c of unique) {
-      if (isProjectDir(c)) return c
-    }
-    for (const c of unique) {
-      if (pathIsFile(path.join(c, 'install', 'modules.yaml'))) return c
-    }
-    return unique[0] ?? null
-  } catch {
-    return null
-  }
+// 打包态资源目录只读使用,无需拷贝到可写位置——此前的可写拷贝是为
+// compose 模块管理服务的,该能力已删除。personas/skills 只读加载。
+function resolveBundledResourcesDir(): string | null {
+  if (!app.isPackaged) return null
+  const candidate = path.join(process.resourcesPath, 'arkloop-project')
+  if (!pathIsDirectory(path.join(candidate, 'src'))) return null
+  return candidate
 }
 
 function resolveProjectDir(): string | null {
   const explicit = readEnvVar('ARKLOOP_PROJECT_DIR')
-  if (explicit) {
-    if (isProjectDir(explicit) || isBridgeProjectDir(explicit)) {
-      return explicit
-    }
+  if (explicit && isProjectDir(explicit)) {
+    return explicit
   }
-  const bundled = resolveBundledProjectDir()
+  const bundled = resolveBundledResourcesDir()
   if (bundled) return bundled
-  const dev = resolveDevProjectDir()
-  if (dev) return dev
-  return discoverProjectDirFromDocker()
+  return resolveDevProjectDir()
 }
 
 function buildRuntimeResourceEnv(projectDir: string | null): Record<string, string> {
@@ -728,43 +593,6 @@ function buildBrowserSearchEnv(): Record<string, string> {
   }
 }
 
-function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<string, string> {
-  const env: Record<string, string> = {
-    ARKLOOP_BRIDGE_ADDR: `127.0.0.1:${bridgePort}`,
-    ARKLOOP_BRIDGE_AUTH_TOKEN: desktopAccessToken,
-  }
-
-  const devUrl = process.env.VITE_DEV_URL?.trim()
-  if (devUrl) {
-    try {
-      env.ARKLOOP_BRIDGE_CORS_ORIGINS = new URL(devUrl).origin
-    } catch {
-      // Ignore malformed dev URLs and fall back to the bridge defaults.
-    }
-  }
-
-  if (!projectDir) return env
-
-  if (isBridgeProjectDir(projectDir)) {
-    env.ARKLOOP_BRIDGE_PROJECT_DIR = projectDir
-  }
-  const modulesFile = path.join(projectDir, 'install', 'modules.yaml')
-  if (pathIsFile(modulesFile)) {
-    env.ARKLOOP_BRIDGE_MODULES_FILE = modulesFile
-  }
-
-  return env
-}
-
-
-async function resolveBridgePort(apiPort: number): Promise<number> {
-  // Keep bridge and API ports disjoint even when the allocator falls back to
-  // ephemeral ports under heavy local port contention.
-  return await resolveLaunchPort(DEFAULT_BRIDGE_PORT, 'auto', {
-    excludePorts: [apiPort],
-  })
-}
-
 function healthCheck(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${port}/healthz`, (res) => {
@@ -790,26 +618,6 @@ function desktopOsUsername(): string {
   }
 }
 
-async function waitForBridgeReady(): Promise<boolean> {
-  const base = bridgeBaseUrl
-  for (let i = 0; i < BRIDGE_READY_ATTEMPTS; i++) {
-    const ok = await new Promise<boolean>((resolve) => {
-      const req = http.get(`${base}/healthz`, (res) => {
-        resolve(res.statusCode === 200)
-      })
-      req.on('error', () => resolve(false))
-      req.setTimeout(1500, () => {
-        req.destroy()
-        resolve(false)
-      })
-    })
-    if (ok) return true
-    await sleep(BRIDGE_READY_POLL_MS)
-  }
-  return false
-}
-
-
 function isPortConflictText(text: string, sidecarPort: number): boolean {
   const normalized = text.toLowerCase()
   const hasConflictKeyword = normalized.includes('address already in use')
@@ -817,8 +625,7 @@ function isPortConflictText(text: string, sidecarPort: number): boolean {
     || normalized.includes('eaddrinuse')
   if (!hasConflictKeyword) return false
   // Only treat as sidecar port conflict if the message references the sidecar's
-  // own port. Other components (e.g., bridge) may log bind failures for their
-  // own ports which should not abort the sidecar launch.
+  // own port; bind failures for other ports should not abort the launch.
   return normalized.includes(`:${sidecarPort}`)
 }
 
@@ -980,13 +787,10 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
   let launchError: Error | null = null
   let recentOutput = ''
   let healthy = false
-  const bridgePort = await resolveBridgePort(port)
   const projectDir = resolveProjectDir()
-  setBridgeBaseUrl(`http://127.0.0.1:${bridgePort}`)
   console.info('[sidecar] launch request', {
     binPath,
     port,
-    bridgePort,
     projectDir,
     logPath: getDesktopLogPaths().sidecar,
     packaged: app.isPackaged,
@@ -1008,7 +812,6 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ARKLOOP_OUTBOUND_TRUST_FAKE_IP: process.env.ARKLOOP_OUTBOUND_TRUST_FAKE_IP ?? 'true',
       ...buildRuntimeResourceEnv(projectDir),
       ...buildWorkspaceEnv(projectDir),
-      ...buildBridgeEnv(bridgePort, projectDir),
       ...buildBrowserSearchEnv(),
       ...buildMemoryEnv(),
       ...buildNetworkEnv(),

@@ -4,8 +4,8 @@ export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
 export type LocalPortMode = 'auto' | 'manual'
 export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
-export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
-export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
+export type FetchProvider = 'none' | 'jina' | 'basic'
+export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa'
 export type XSearchProvider = 'none' | 'xai_oauth' | 'xai_api_key'
 
 export type ConnectorsConfig = {
@@ -13,15 +13,11 @@ export type ConnectorsConfig = {
     provider: FetchProvider
     jinaApiKey?: string
     jinaApiKeyStored?: boolean
-    firecrawlApiKey?: string
-    firecrawlApiKeyStored?: boolean
-    firecrawlBaseUrl?: string
   }
   search: {
     provider: SearchProvider
     tavilyApiKey?: string
     tavilyApiKeyStored?: boolean
-    searxngBaseUrl?: string
   }
   xSearch: {
     provider: XSearchProvider
@@ -399,7 +395,6 @@ const config = ipcRenderer.sendSync('arkloop:config:get-sync') as {
   selfHosted: { baseUrl: string }
   local: { port: number; portMode: LocalPortMode }
   desktopAccessToken?: string
-  bridgeBaseUrl?: string
 }
 
 let configSnapshot: AppConfig = config as AppConfig
@@ -408,8 +403,6 @@ let sidecarRuntimeSnapshot: SidecarRuntime = {
   port: config.local.port,
   portMode: config.local.portMode,
 }
-let bridgeBaseUrlSnapshot = config.bridgeBaseUrl ?? 'http://127.0.0.1:19003'
-
 function computeApiBaseUrl(nextConfig: AppConfig, runtime: SidecarRuntime): string {
   if (nextConfig.mode === 'local') {
     const port = runtime.port ?? nextConfig.local.port
@@ -430,12 +423,10 @@ function getCurrentApiBaseUrl(): string {
 
 contextBridge.exposeInMainWorld('__ARKLOOP_DESKTOP__', {
   apiBaseUrl: getCurrentApiBaseUrl(),
-  bridgeBaseUrl: bridgeBaseUrlSnapshot,
   accessToken: config.desktopAccessToken ?? '',
   mode: configSnapshot.mode,
   platform: process.platform,
   getApiBaseUrl: () => getCurrentApiBaseUrl(),
-  getBridgeBaseUrl: () => bridgeBaseUrlSnapshot,
   getAccessToken: () => config.desktopAccessToken ?? '',
   getMode: () => configSnapshot.mode,
   getPlatform: () => process.platform,
@@ -447,10 +438,6 @@ ipcRenderer.on('arkloop:config:changed', (_event: Electron.IpcRendererEvent, nex
 
 ipcRenderer.on('arkloop:sidecar:runtime-changed', (_event: Electron.IpcRendererEvent, runtime: SidecarRuntime) => {
   sidecarRuntimeSnapshot = runtime
-})
-
-ipcRenderer.on('arkloop:bridge:url-changed', (_event: Electron.IpcRendererEvent, bridgeBaseUrl: string) => {
-  bridgeBaseUrlSnapshot = bridgeBaseUrl
 })
 
 ipcRenderer.on('arkloop:app:open-settings', () => {

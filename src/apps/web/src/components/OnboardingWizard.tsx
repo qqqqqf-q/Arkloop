@@ -1857,21 +1857,6 @@ export function OnboardingWizard({ onComplete }: Props) {
                 >
                   {ob.completionDesc}
                 </div>
-                <div
-                  className="flex items-center justify-center gap-2"
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--c-text-muted)",
-                    marginBottom: "32px",
-                    padding: "10px 16px",
-                    borderRadius: "10px",
-                    background: "var(--c-bg-menu)",
-                    border: "0.5px solid var(--c-border-subtle)",
-                  }}
-                >
-                  <Settings size={14} />
-                  {ob.completionModulesHint}
-                </div>
                 <button
                   type="button"
                   onClick={() => void handleComplete()}

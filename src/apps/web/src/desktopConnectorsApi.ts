@@ -29,8 +29,6 @@ function providerNameToFetch(providerName: string): ConnectorsConfig['fetch']['p
   switch (providerName) {
   case 'web_fetch.basic':
     return 'basic'
-  case 'web_fetch.firecrawl':
-    return 'firecrawl'
   case 'web_fetch.jina':
     return 'jina'
   default:
@@ -42,8 +40,6 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
   switch (providerName) {
   case 'web_search.basic':
     return 'basic'
-  case 'web_search.searxng':
-    return 'searxng'
   case 'web_search.exa':
     return 'exa'
   case 'web_search.tavily':
@@ -87,11 +83,6 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         ? secretPreview(activeFetch.key_prefix)
         : undefined,
       jinaApiKeyStored: activeFetch?.provider_name === 'web_fetch.jina' && Boolean(activeFetch.key_prefix),
-      firecrawlApiKey: activeFetch?.provider_name === 'web_fetch.firecrawl'
-        ? secretPreview(activeFetch.key_prefix)
-        : undefined,
-      firecrawlApiKeyStored: activeFetch?.provider_name === 'web_fetch.firecrawl' && Boolean(activeFetch.key_prefix),
-      firecrawlBaseUrl: activeFetch?.provider_name === 'web_fetch.firecrawl' ? activeFetch.base_url : undefined,
     },
     search: {
       provider: activeSearch ? providerNameToSearch(activeSearch.provider_name) : 'none',
@@ -99,7 +90,6 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         ? secretPreview(activeSearch.key_prefix)
         : undefined,
       tavilyApiKeyStored: activeSearch?.provider_name === 'web_search.tavily' && Boolean(activeSearch.key_prefix),
-      searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng' ? activeSearch.base_url : undefined,
     },
     xSearch: {
       provider: activeXSearch ? xSearchAuthMode(activeXSearch) : 'none',
@@ -141,12 +131,6 @@ async function applySearchConnector(accessToken: string, search: ConnectorsConfi
     await activateToolProvider(accessToken, 'web_search', 'web_search.exa')
     return
   }
-  if (search.provider === 'searxng') {
-    await activateToolProvider(accessToken, 'web_search', 'web_search.searxng')
-    await updateToolProviderCredential(accessToken, 'web_search', 'web_search.searxng', {
-      base_url: search.searxngBaseUrl ?? '',
-    })
-  }
 }
 
 async function applyFetchConnector(accessToken: string, fetch: ConnectorsConfig['fetch']): Promise<void> {
@@ -163,16 +147,6 @@ async function applyFetchConnector(accessToken: string, fetch: ConnectorsConfig[
       })
     }
     return
-  }
-  if (fetch.provider === 'firecrawl') {
-    await activateToolProvider(accessToken, 'web_fetch', 'web_fetch.firecrawl')
-    const credential: Record<string, string> = {
-      base_url: fetch.firecrawlBaseUrl ?? '',
-    }
-    if (!fetch.firecrawlApiKeyStored) {
-      credential.api_key = fetch.firecrawlApiKey ?? ''
-    }
-    await updateToolProviderCredential(accessToken, 'web_fetch', 'web_fetch.firecrawl', credential)
   }
 }
 

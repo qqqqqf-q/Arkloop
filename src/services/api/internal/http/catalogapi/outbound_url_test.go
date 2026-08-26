@@ -3,7 +3,7 @@ package catalogapi
 import "testing"
 
 func TestNormalizeOptionalInternalBaseURL(t *testing.T) {
-	raw := " http://searxng:8080/api/ "
+	raw := " http://internal-svc:8080/api/ "
 	normalized, err := normalizeOptionalInternalBaseURL(&raw)
 	if err != nil {
 		t.Fatalf("normalizeOptionalInternalBaseURL() error = %v", err)
@@ -11,13 +11,13 @@ func TestNormalizeOptionalInternalBaseURL(t *testing.T) {
 	if normalized == nil {
 		t.Fatal("expected normalized base URL")
 	}
-	if *normalized != "http://searxng:8080/api" {
+	if *normalized != "http://internal-svc:8080/api" {
 		t.Fatalf("unexpected normalized base URL: %q", *normalized)
 	}
 }
 
 func TestNormalizeOptionalBaseURLAllowsInsecureHTTP(t *testing.T) {
-	raw := " http://searxng:8080/api/ "
+	raw := " http://internal-svc:8080/api/ "
 	normalized, err := normalizeOptionalBaseURL(&raw)
 	if err != nil {
 		t.Fatalf("normalizeOptionalBaseURL() error = %v", err)
@@ -25,7 +25,7 @@ func TestNormalizeOptionalBaseURLAllowsInsecureHTTP(t *testing.T) {
 	if normalized == nil {
 		t.Fatal("expected normalized base URL")
 	}
-	if *normalized != "http://searxng:8080/api" {
+	if *normalized != "http://internal-svc:8080/api" {
 		t.Fatalf("unexpected normalized base URL: %q", *normalized)
 	}
 }

@@ -1059,18 +1059,8 @@ export const en: LocaleStrings = {
       granted: "Granted",
       notGranted: "Not granted",
     },
-    modules: "Modules",
-    modulesTitle: "Local Modules",
-    modulesDesc:
-      "Install and manage optional local modules like SearXNG and Firecrawl.",
-    modulesOffline:
-      "Installer Bridge is offline. Start the bridge service to manage modules.",
     memoryTitle: "Memory System",
     memoryDesc: "Add long-term memory with embeddings and vector storage",
-    searchTitle: "SearXNG",
-    searchDesc: "Enable self-hosted web search for grounded answers",
-    crawlerTitle: "Firecrawl",
-    crawlerDesc: "Add deeper crawling and extraction for web content",
     extensionsTitle: "Extensions",
     extensionsDesc: "Manage desktop extensions and plugins",
     developerTitle: "Developer Options",
@@ -1134,11 +1124,9 @@ export const en: LocaleStrings = {
     connectorNotConfigured: "Not configured",
     fetchProviderJina: "Jina Reader",
     fetchProviderBasic: "Basic HTTP",
-    fetchProviderFirecrawl: "Firecrawl",
     searchProviderBasic: "Basic Search",
     searchProviderTavily: "Tavily",
     searchProviderExa: "Exa",
-    searchProviderSearxng: "SearXNG",
     xSearchProviderXai: "xAI",
     xSearchProviderXaiOAuth: "xAI OAuth",
     xSearchProviderXaiApiKey: "xAI API Key",
@@ -1149,10 +1137,8 @@ export const en: LocaleStrings = {
     searchProviderBasicDesc: "Built-in browser search. No API key needed",
     searchProviderTavilyDesc: "Tavily Search API. Fast, structured results. Requires an API key",
     searchProviderExaDesc: "Exa hosted web search",
-    searchProviderSearxngDesc: "Self-hosted SearXNG. Full control, no data sharing. Requires a base URL",
     fetchProviderJinaDesc: "Converts pages to clean markdown via Jina Reader. Free tier works without any key",
     fetchProviderBasicDesc: "Direct HTTP with HTML stripping. Always available, no config needed",
-    fetchProviderFirecrawlDesc: "Advanced web crawling and content extraction. Requires a Firecrawl API key",
     resetOnboardingBtn: "Reset",
     appVersion: "App version",
     // Voice settings
@@ -1303,7 +1289,6 @@ export const en: LocaleStrings = {
     advancedLogs: "Logs",
     advancedLogsDesc: "Inspect local desktop main-process and sidecar logs",
     advancedModules: "Modules",
-    advancedModulesDesc: "Manage local modules and bridge-backed components",
     advancedExtensions: "Extensions",
     advancedExtensionsDesc: "Current extension entry point for the desktop app",
     advancedConfigPath: "Config file",
@@ -1650,29 +1635,6 @@ export const en: LocaleStrings = {
     localSearchModels: "Search models...",
     localModelsShowing: (total: number, enabled: number) =>
       `${total} models · ${enabled} enabled`,
-    localModulesTitle: "Optional local capabilities",
-    localModulesDesc:
-      "Install the parts you want now, or skip and configure them later in Modules",
-    localModulesInstallerOffline:
-      "Installer is currently offline. You can continue now and install these later in Modules",
-    localModulesContinue: "Install selected and continue",
-    localModulesSkip: "Skip for now",
-    localModulesRecommended: "Recommended",
-    localModulesInstalled: "Installed",
-    localModulesInstalling: "Installing...",
-    localModulesDependsOn: "Depends on",
-    localModulesMemoryTitle: "Memory system",
-    localModulesMemoryDesc:
-      "Add long-term memory with embeddings and vector storage",
-    localModulesSearchTitle: "SearXNG",
-    localModulesSearchDesc:
-      "Enable self-hosted web search for grounded answers",
-    localModulesCrawlerTitle: "Firecrawl",
-    localModulesCrawlerDesc:
-      "Add deeper crawling and extraction for web content",
-    localModulesBrowserTitle: "Agent Browser",
-    localModulesBrowserDesc:
-      "Let agents interact with websites using a real browser",
     importTitle: "Import existing agents",
     importDesc: "Choose what Arkloop should bring in",
     importDetectedAt: (path: string) => `Config found in ${path}`,
@@ -1696,8 +1658,6 @@ export const en: LocaleStrings = {
     selfHostFailed: "Connection failed",
     completionTitle: "All set",
     completionDesc: "You are ready to start chatting",
-    completionModulesHint:
-      "Optional local modules (SearXNG, Firecrawl) can be enabled later in Settings",
     startChatting: "Start chatting",
     back: "Back",
     next: "Next",

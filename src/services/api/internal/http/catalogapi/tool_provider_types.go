@@ -3,14 +3,13 @@ package catalogapi
 import "encoding/json"
 
 type toolProviderDefinition struct {
-	GroupName          string
-	ProviderName       string
-	RequiresAPIKey     bool
-	RequiresBaseURL    bool
-	AllowsInternalHTTP bool
-	ConfigFields       []ConfigFieldDef `json:"config_fields,omitempty"`
-	DefaultBaseURL     string
-	DefaultAPIKey      string
+	GroupName       string
+	ProviderName    string
+	RequiresAPIKey  bool
+	RequiresBaseURL bool
+	ConfigFields    []ConfigFieldDef `json:"config_fields,omitempty"`
+	DefaultBaseURL  string
+	DefaultAPIKey   string
 }
 
 type ConfigFieldDef struct {

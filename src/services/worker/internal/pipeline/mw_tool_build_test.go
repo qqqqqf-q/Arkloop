@@ -210,13 +210,13 @@ func TestToolBuildMiddleware_SkipsProviderManagedGroupWithoutActiveProvider(t *t
 		t.Fatalf("register tavily: %v", err)
 	}
 	if err := registry.Register(tools.AgentToolSpec{
-		Name:        "web_search.searxng",
+		Name:        "web_search.exa",
 		LlmName:     "web_search",
 		Version:     "1",
 		Description: "search",
 		RiskLevel:   tools.RiskLevelLow,
 	}); err != nil {
-		t.Fatalf("register searxng: %v", err)
+		t.Fatalf("register exa: %v", err)
 	}
 
 	executors := map[string]tools.Executor{}
@@ -228,7 +228,7 @@ func TestToolBuildMiddleware_SkipsProviderManagedGroupWithoutActiveProvider(t *t
 		Emitter:                   events.NewEmitter("test"),
 		ToolRegistry:              registry,
 		ToolExecutors:             executors,
-		AllowlistSet:              map[string]struct{}{"web_search.tavily": {}, "web_search.searxng": {}},
+		AllowlistSet:              map[string]struct{}{"web_search.tavily": {}, "web_search.exa": {}},
 		ActiveToolProviderByGroup: nil,
 		ToolSpecs:                 []llm.ToolSpec{},
 	}

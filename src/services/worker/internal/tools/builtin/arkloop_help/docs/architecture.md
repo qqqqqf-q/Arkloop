@@ -2,7 +2,7 @@
 
 ## 总体形态：单进程嵌入式
 
-Arkloop 的后端是**一个 Go 进程**：**API + Worker + Bridge** 以**库**形式内嵌（`src/services/desktop` 组合，`src/services/api` / `src/services/worker` 根包各自暴露 `StartDesktop` 入口），不再是可独立部署的微服务。
+Arkloop 的后端是**一个 Go 进程**：**API + Worker** 以**库**形式内嵌（`src/services/desktop` 组合，`src/services/api` / `src/services/worker` 根包各自暴露 `StartDesktop` 入口），不再是可独立部署的微服务。
 
 - **存储**：**SQLite**（`shared/database/sqliteadapter`，100+ 个手写 migration，启动时 AutoMigrate）+ **本地 filesystem** 对象存储。
 - **事件**：**进程内事件总线**，没有 Redis / pg_notify / 消息队列。
@@ -11,15 +11,15 @@ Arkloop 的后端是**一个 Go 进程**：**API + Worker + Bridge** 以**库**�
 两种外壳共用这套运行时：
 
 - **Desktop**：Electron 壳（`src/apps/desktop`）内嵌 Go 运行时与打包后的 Web 界面。
-- **Headless CLI**：`ark web`（`src/services/cli/cmd/ark`）直接启动运行时并对外提供 Web 界面。默认端口：**Web 19080 / API 19001 / Bridge 19003**（可用 `--port` / `--api-port` / `--bridge-port` 覆盖）。
+- **Headless CLI**：`ark web`（`src/services/cli/cmd/ark`）直接启动运行时并对外提供 Web 界面。默认端口：**Web 19080 / API 19001**（可用 `--port` / `--api-port` 覆盖）。
 
 ## 仓库布局（当前）
 
 | 目录 | 内容 |
 |------|------|
-| `src/services/desktop` | 嵌入式运行时组合（API + Worker + Bridge） |
+| `src/services/desktop` | 嵌入式运行时组合（API + Worker） |
 | `src/services/cli` | `ark` 命令行（headless 入口、聊天、状态等子命令） |
-| `src/services/api` / `worker` / `bridge` | 各领域库代码（`internal/` 下 DDD 风格） |
+| `src/services/api` / `worker` | 各领域库代码（`internal/` 下 DDD 风格） |
 | `src/services/shared` | 共享库：配置、SQLite 适配器、存储抽象等 |
 | `src/apps/desktop` | Electron 桌面壳 |
 | `src/apps/web` | Web 对话界面（React 19 / Vite 7 / Tailwind 4） |
@@ -73,16 +73,9 @@ Agent 执行器类型（persona.yaml 的 `executor_type`）：
 
 群聊活跃时由调度器按间隔入队运行（`run_kind=discuss`，状态落 **`scheduled_triggers`** 表）；群聊 run 的 assistant 文本默认不可见，模型须先调用 **`speak`** 工具正文才会发到群里。Persona 还可配置 **heartbeat**（`heartbeat.enabled`，`run_kind=heartbeat`）做定时唤醒。
 
-## 可选模块（compose.yaml）
-
-根目录 `compose.yaml` **只含可选模块**，经 `profiles` 启用，由 Bridge 管理：
-
-- **`searxng`**：自托管元搜索，`web_search` provider。
-- **`firecrawl`**：自托管网页抓取，`web_fetch` provider（模块内部自带其专用的 redis/postgres/rabbitmq，与主运行时无关）。
-
 ## 平台管理
 
-运行时配置通过 **`platform_manage`** 工具完成（供应商、模型、Agent、Skills、MCP、模块、API key 等），动作清单见 `platform_setup` 文档。
+运行时配置通过 **`platform_manage`** 工具完成（供应商、模型、Agent、Skills、MCP、API key 等），动作清单见 `platform_setup` 文档。
 
 ## 与本工具的关系
 

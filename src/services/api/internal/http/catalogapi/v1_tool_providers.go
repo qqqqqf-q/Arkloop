@@ -483,10 +483,7 @@ func upsertToolProviderCredential(
 			normalizedBaseURL *string
 			err               error
 		)
-		allowInternalHTTP := def.AllowsInternalHTTP
-		if req.AllowInternalHTTP != nil {
-			allowInternalHTTP = *req.AllowInternalHTTP
-		}
+		allowInternalHTTP := req.AllowInternalHTTP != nil && *req.AllowInternalHTTP
 		if allowInternalHTTP {
 			normalizedBaseURL, err = normalizeOptionalInternalBaseURL(req.BaseURL)
 		} else {

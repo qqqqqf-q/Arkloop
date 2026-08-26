@@ -131,9 +131,6 @@ describe('AdvancedSettings', () => {
     vi.doMock('../components/settings/ConnectionSettings', () => ({
       ConnectionSettings: () => <div>connection-settings</div>,
     }))
-    vi.doMock('../components/settings/ModulesSettings', () => ({
-      ModulesSettings: () => <div>modules-settings</div>,
-    }))
     vi.doMock('../components/settings/ExtensionsSettings', () => ({
       ExtensionsSettings: () => <div>extensions-settings</div>,
     }))
@@ -252,9 +249,6 @@ describe('AdvancedSettings', () => {
     })
     vi.doMock('../components/settings/ConnectionSettings', () => ({
       ConnectionSettings: () => <div>connection-settings</div>,
-    }))
-    vi.doMock('../components/settings/ModulesSettings', () => ({
-      ModulesSettings: () => <div>modules-settings</div>,
     }))
     vi.doMock('../components/settings/ExtensionsSettings', () => ({
       ExtensionsSettings: () => <div>extensions-settings</div>,
@@ -435,9 +429,6 @@ describe('AdvancedSettings', () => {
     })
     vi.doMock('../components/settings/ConnectionSettings', () => ({
       ConnectionSettings: () => <div>connection-settings</div>,
-    }))
-    vi.doMock('../components/settings/ModulesSettings', () => ({
-      ModulesSettings: () => <div>modules-settings</div>,
     }))
     vi.doMock('../components/settings/ExtensionsSettings', () => ({
       ExtensionsSettings: () => <div>extensions-settings</div>,

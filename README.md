@@ -94,16 +94,14 @@ Thanks to the following friends for their support, keeping Arkloop going:
 
 ## Architecture
 
-One embedded Go process is the whole backend: API, worker, and bridge are libraries, not separate services. Storage is a local SQLite database (auto-migrated on first start) plus the filesystem — no Postgres, Redis, or message queue.
+One embedded Go process is the whole backend: API and worker are libraries, not separate services. Storage is a local SQLite database (auto-migrated on first start) plus the filesystem — no Postgres, Redis, or message queue.
 
 | Piece | Stack | Role |
 |-------|-------|------|
 | Desktop | Electron | Native shell embedding the Go runtime |
-| Runtime | Go | Single process: API + worker + bridge; SQLite, in-process event bus |
+| Runtime | Go | Single process: API + worker; SQLite, in-process event bus |
 | Web | React / TypeScript | Chat UI, bundled into the desktop app and served by `ark web` |
 | CLI | Go | `ark` — headless entrypoint to the same runtime |
-
-Optional modules (SearXNG, Firecrawl) run as Docker containers via compose profiles.
 
 ## Development
 

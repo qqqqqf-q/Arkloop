@@ -2,7 +2,7 @@
 
 ## Arkloop 是什么
 
-Arkloop 是一个**个人开源项目**：**本地优先**的对话式 AI Agent 平台。整个后端是一个**单进程嵌入式 Go 运行时**（API + Worker + Bridge 以库形式内嵌），存储是本地 **SQLite** 数据库加文件系统——没有 Postgres、Redis 或消息队列等外部基础设施。
+Arkloop 是一个**个人开源项目**：**本地优先**的对话式 AI Agent 平台。整个后端是一个**单进程嵌入式 Go 运行时**（API + Worker 以库形式内嵌），存储是本地 **SQLite** 数据库加文件系统——没有 Postgres、Redis 或消息队列等外部基础设施。
 
 产品形态有两种，共用同一套运行时：
 

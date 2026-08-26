@@ -13,15 +13,14 @@ Arkloop 是一个本地优先的对话式 AI agent 平台(个人项目)。deskto
 ```
 desktop 单进程(src/services/desktop)
   ├─ api(库,loopback :19001)— REST:auth/channels/settings/runs
-  ├─ worker(库)— agent 管线:LLM 路由、工具执行、agent loop
-  └─ bridge(库)— 可选模块管理(Docker Compose)
+  └─ worker(库)— agent 管线:LLM 路由、工具执行、agent loop
 
 存储:SQLite(进程内,启动时 AutoMigrate)+ filesystem 文件存储
 事件:进程内 LocalEventBus(无 Redis/pg_notify)
-外部服务:LLM providers(BYOK)、Nowledge(可选,记忆)、可选模块(searxng/firecrawl)
+外部服务:LLM providers(BYOK)、Nowledge(可选,记忆)
 ```
 
-仓库是 monorepo:`src/services/`(Go,go.work,Go 1.26)+ `src/apps/`(pnpm monorepo)+ `src/personas/` + `install/` + `compose.yaml`(只剩可选模块)。
+仓库是 monorepo:`src/services/`(Go,go.work,Go 1.26)+ `src/apps/`(pnpm monorepo)+ `src/personas/`。
 
 ## Backend Services
 
@@ -29,13 +28,12 @@ desktop 单进程(src/services/desktop)
 | ----------------- | ------------------------------------------------------------------- |
 | `api`             | REST API 库(embedded 运行):auth、channels、settings、runs          |
 | `worker`          | agent 执行库(embedded):中间件管线、LLM 路由、工具调度、agent loop    |
-| `bridge`          | 模块管理库(embedded):可选模块的 Docker Compose 安装/启停           |
-| `desktop`         | embedded 入口:单进程组合 api+worker+bridge                         |
+| `desktop`         | embedded 入口:单进程组合 api+worker                                 |
 | `shared`          | 共享库:config、sqliteadapter/sqlitepgx、eventbus、objectstore      |
 | `cli`             | ark CLI(headless 入口,复用同一 desktop 后端)                       |
 | `activity-record` | 独立 sidecar(自包含 SQLite,冻结保留)                               |
 
-服务布局:`cmd/`(入口)+ `internal/`(app/data/http 分层)。注意 api/worker/bridge 没有独立 cmd 入口——它们以库形式被 `desktop` 与 `cli` 嵌入,唯一后端入口是 `src/services/desktop/cmd/desktop`。
+服务布局:`cmd/`(入口)+ `internal/`(app/data/http 分层)。注意 api/worker 没有独立 cmd 入口——它们以库形式被 `desktop` 与 `cli` 嵌入,唯一后端入口是 `src/services/desktop/cmd/desktop`。
 
 ### Backend Workflow
 
@@ -46,9 +44,6 @@ cd src/services/worker && go build ./... && go test ./...
 
 # 运行 desktop 后端(不需要任何外部基础设施)
 cd src/services/desktop && go run ./cmd/desktop
-
-# 可选模块(searxng/firecrawl)经 desktop 设置页安装,
-# 或直接: docker compose --profile searxng --profile firecrawl up -d
 ```
 
 ### Key Patterns

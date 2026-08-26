@@ -95,16 +95,14 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 
 ## 架构
 
-整个后端就是一个嵌入式 Go 进程：API、Worker、Bridge 都是库，不是独立服务。存储是本地 SQLite 数据库（首次启动自动迁移）加文件系统 -- 没有 Postgres、Redis 或消息队列。
+整个后端就是一个嵌入式 Go 进程：API、Worker 都是库，不是独立服务。存储是本地 SQLite 数据库（首次启动自动迁移）加文件系统 -- 没有 Postgres、Redis 或消息队列。
 
 | 组件 | 技术栈 | 职责 |
 |------|--------|------|
 | Desktop | Electron | 原生桌面壳，内嵌 Go 运行时 |
-| Runtime | Go | 单进程：API + Worker + Bridge；SQLite、进程内事件总线 |
+| Runtime | Go | 单进程：API + Worker；SQLite、进程内事件总线 |
 | Web | React / TypeScript | 对话界面，打包进桌面应用，也由 `ark web` 直接对外提供 |
 | CLI | Go | `ark` -- 同一套运行时的 headless 入口 |
-
-可选模块（SearXNG、Firecrawl）以 Docker 容器形式通过 compose profile 启动。
 
 ## 开发
 

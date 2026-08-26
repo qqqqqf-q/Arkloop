@@ -36,10 +36,9 @@ import (
 )
 
 const (
-	defaultWebHost    = "127.0.0.1"
-	defaultWebPort    = 19080
-	defaultAPIPort    = 19001
-	defaultBridgePort = 19003
+	defaultWebHost = "127.0.0.1"
+	defaultWebPort = 19080
+	defaultAPIPort = 19001
 
 	headlessSetupTokenParam  = "ark_web_local_token"
 	headlessSetupTokenHeader = "X-Arkloop-Setup-Token"
@@ -86,7 +85,6 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	host := fs.String("host", defaultWebHost, "web listen host")
 	port := fs.Int("port", defaultWebPort, "web listen port")
 	apiPort := fs.Int("api-port", defaultAPIPort, "local api port")
-	bridgePort := fs.Int("bridge-port", defaultBridgePort, "local bridge port")
 	webRoot := fs.String("web-root", "", "web dist directory")
 	dataDir := fs.String("data-dir", "", "data directory")
 	publicURL := fs.String("public-url", "", "public base URL")
@@ -105,7 +103,7 @@ func cmdWebStart(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if err := configureHeadlessEnv(*apiPort, *bridgePort, *dataDir, *publicURL); err != nil {
+	if err := configureHeadlessEnv(*apiPort, *dataDir, *publicURL); err != nil {
 		return err
 	}
 	if err := desktopruntime.EnsureToken(); err != nil {
@@ -126,9 +124,8 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	runtimeErr := make(chan error, 1)
 	go func() {
 		runtimeErr <- desktopruntime.Run(ctx, desktopruntime.Options{
-			Component:   "headless-web",
-			StartBridge: true,
-			Quiet:       !*verbose,
+			Component: "headless-web",
+			Quiet:     !*verbose,
 		})
 	}()
 
@@ -334,17 +331,11 @@ func (s *headlessSetupAccess) consume() {
 	}
 }
 
-func configureHeadlessEnv(apiPort int, bridgePort int, dataDir string, publicURL string) error {
+func configureHeadlessEnv(apiPort int, dataDir string, publicURL string) error {
 	if apiPort <= 0 || apiPort > 65535 {
 		return fmt.Errorf("api-port must be in range 1-65535")
 	}
-	if bridgePort <= 0 || bridgePort > 65535 {
-		return fmt.Errorf("bridge-port must be in range 1-65535")
-	}
 	if err := os.Setenv("ARKLOOP_API_GO_ADDR", net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort))); err != nil {
-		return err
-	}
-	if err := os.Setenv("ARKLOOP_BRIDGE_ADDR", net.JoinHostPort("127.0.0.1", strconv.Itoa(bridgePort))); err != nil {
 		return err
 	}
 	if strings.TrimSpace(dataDir) != "" {
@@ -839,13 +830,12 @@ func injectDesktopInfo(index []byte, token string, setupToken string) []byte {
 		return index
 	}
 	payload, _ := json.Marshal(map[string]string{
-		"accessToken":   token,
-		"appVersion":    version,
-		"bridgeBaseUrl": "",
-		"mode":          "local",
-		"setupToken":    setupToken,
+		"accessToken": token,
+		"appVersion":  version,
+		"mode":        "local",
+		"setupToken":  setupToken,
 	})
-	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getBridgeBaseUrl:function(){return ""},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"},getAppVersion:function(){return ` + strconv.Quote(version) + `},getSetupToken:function(){return ` + strconv.Quote(setupToken) + `}});</script>`)
+	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"},getAppVersion:function(){return ` + strconv.Quote(version) + `},getSetupToken:function(){return ` + strconv.Quote(setupToken) + `}});</script>`)
 	if idx := bytes.Index(index, []byte("</head>")); idx >= 0 {
 		out := make([]byte, 0, len(index)+len(script))
 		out = append(out, index[:idx]...)

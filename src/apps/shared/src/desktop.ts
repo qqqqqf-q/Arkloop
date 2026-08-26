@@ -2,24 +2,20 @@ export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
 export type LocalPortMode = 'auto' | 'manual'
 export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
-export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
-export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
+export type FetchProvider = 'none' | 'jina' | 'basic'
+export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa'
 export type XSearchProvider = 'none' | 'xai_oauth' | 'xai_api_key'
 
 export type FetchConnectorConfig = {
   provider: FetchProvider
   jinaApiKey?: string
   jinaApiKeyStored?: boolean
-  firecrawlApiKey?: string
-  firecrawlApiKeyStored?: boolean
-  firecrawlBaseUrl?: string
 }
 
 export type SearchConnectorConfig = {
   provider: SearchProvider
   tavilyApiKey?: string
   tavilyApiKeyStored?: boolean
-  searxngBaseUrl?: string
 }
 
 export type XSearchConnectorConfig = {
@@ -149,13 +145,11 @@ export type SidecarRuntime = {
 
 type DesktopInfo = {
   apiBaseUrl?: string
-  bridgeBaseUrl?: string
   accessToken?: string
   mode?: ConnectionMode
   platform?: DesktopPlatform
   appVersion?: string
   getApiBaseUrl?: () => string
-  getBridgeBaseUrl?: () => string
   getAccessToken?: () => string
   getMode?: () => ConnectionMode
   getPlatform?: () => DesktopPlatform
@@ -439,14 +433,6 @@ export function getDesktopAccessToken(): string | null {
     return info.getAccessToken() ?? null
   }
   return info?.accessToken ?? null
-}
-
-export function getDesktopBridgeBaseUrl(): string | null {
-  const info = getDesktopInfo()
-  if (typeof info?.getBridgeBaseUrl === 'function') {
-    return info.getBridgeBaseUrl() ?? null
-  }
-  return info?.bridgeBaseUrl ?? null
 }
 
 export function isLocalMode(): boolean {

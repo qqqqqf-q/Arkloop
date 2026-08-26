@@ -43,7 +43,6 @@ import { ConnectionSettings } from "./settings/ConnectionSettings";
 import { ChatSettings } from "./settings/ChatSettings";
 import { ExtensionsSettings } from "./settings/ExtensionsSettings";
 import { PluginsSettings } from "./settings/PluginsSettings";
-import { ModulesSettings } from "./settings/ModulesSettings";
 import { DeveloperSettings } from "./settings/DeveloperSettings";
 import { DesignTokensSettings } from "./settings/DesignTokensSettings";
 import { AboutSettings } from "./settings/AboutSettings";
@@ -66,7 +65,6 @@ export type DesktopSettingsKey =
   | "activityRecorder"
   | "connection"
   | "chat"
-  | "modules"
   | "extensions"
   | "developer"
   | "design-tokens"
@@ -215,8 +213,6 @@ function DesktopSettingsPaneImpl({
             onPlatformSettingsChange={onPlatformSettingsChange}
           />
         );
-      case "modules":
-        return <ModulesSettings />;
       case "extensions":
         return <ExtensionsSettings />;
       case "developer":

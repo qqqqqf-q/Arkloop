@@ -220,7 +220,7 @@ func TestConfigureHeadlessEnvLoadsNowledgeMemoryConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := configureHeadlessEnv(19101, 19103, dataDir, ""); err != nil {
+	if err := configureHeadlessEnv(19101, dataDir, ""); err != nil {
 		t.Fatalf("configureHeadlessEnv: %v", err)
 	}
 
@@ -254,7 +254,7 @@ func TestConfigureHeadlessEnvDefaultsToNotebookWithoutConfig(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "http://stale-nowledge")
 
-	if err := configureHeadlessEnv(19101, 19103, dataDir, ""); err != nil {
+	if err := configureHeadlessEnv(19101, dataDir, ""); err != nil {
 		t.Fatalf("configureHeadlessEnv: %v", err)
 	}
 

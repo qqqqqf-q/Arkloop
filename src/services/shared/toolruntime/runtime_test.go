@@ -95,7 +95,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 			MemoryBaseURL:  memoryBaseURL,
 		},
 		PlatformProviders: []ProviderConfig{
-			{GroupName: "web_search", ProviderName: "web_search.searxng", BaseURL: strPtr("http://searxng:8080")},
+			{GroupName: "web_search", ProviderName: "web_search.basic"},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 			{GroupName: "memory", ProviderName: "memory.nowledge", APIKeyValue: &memoryAPIKey},
 		},

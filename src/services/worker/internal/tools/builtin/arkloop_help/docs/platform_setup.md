@@ -12,9 +12,6 @@ Web Search 让 Agent 能够联网搜索实时信息。通过 `platform_manage` �
 - **Tavily**：更高质量的搜索结果，需要 API Key（从 https://tavily.com 获取）。
   调用方式：`add_tool_provider`，参数 `group: "web_search"`, `provider: "tavily"`, `config: {"api_key": "tvly-..."}`
 
-- **SearXNG**：自托管搜索引擎（compose 可选模块），提供 Base URL。
-  调用方式：`add_tool_provider`，参数 `group: "web_search"`, `provider: "searxng"`, `config: {"base_url": "https://your-searxng-instance"}`
-
 ## 配置 Web Fetch
 
 Web Fetch 让 Agent 能够获取并解析网页内容。通过 `platform_manage` 的 `add_tool_provider` 配置。
@@ -26,9 +23,6 @@ Web Fetch 让 Agent 能够获取并解析网页内容。通过 `platform_manage`
 
 - **Jina**：高质量内容提取，需要 API Key（从 https://jina.ai 获取）。
   调用方式：`add_tool_provider`，参数 `group: "web_fetch"`, `provider: "jina"`, `config: {"api_key": "..."}`
-
-- **Firecrawl**：高级网页抓取与解析（有 compose 可选模块可自托管），需要 API Key 或自托管实例。
-  调用方式：`add_tool_provider`，参数 `group: "web_fetch"`, `provider: "firecrawl"`, `config: {"api_key": "..."}`
 
 ## 配置 Memory
 

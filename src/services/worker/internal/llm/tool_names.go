@@ -8,15 +8,13 @@ import (
 )
 
 var canonicalToolNameAliases = map[string]string{
-	"read.minimax":        "read",
-	"web_fetch.basic":     "web_fetch",
-	"web_fetch.firecrawl": "web_fetch",
-	"web_fetch.jina":      "web_fetch",
-	"web_search.basic":    "web_search",
-	"web_search.exa":      "web_search",
-	"web_search.searxng":  "web_search",
-	"web_search.tavily":   "web_search",
-	"x_search.xai":        "x_search",
+	"read.minimax":      "read",
+	"web_fetch.basic":   "web_fetch",
+	"web_fetch.jina":    "web_fetch",
+	"web_search.basic":  "web_search",
+	"web_search.exa":    "web_search",
+	"web_search.tavily": "web_search",
+	"x_search.xai":      "x_search",
 }
 
 func CanonicalToolName(raw string) string {

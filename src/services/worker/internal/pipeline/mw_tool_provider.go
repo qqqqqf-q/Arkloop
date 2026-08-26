@@ -175,17 +175,6 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 		provider := websearch.NewTavilyProvider(key)
 		return websearch.NewToolExecutorWithProvider(provider)
 
-	case websearch.AgentSpecSearxng.Name:
-		baseURL := ""
-		if cfg.BaseURL != nil {
-			baseURL = strings.TrimRight(strings.TrimSpace(*cfg.BaseURL), "/")
-		}
-		if baseURL == "" {
-			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"base_url"}}
-		}
-		provider := websearch.NewSearxngProvider(baseURL)
-		return websearch.NewToolExecutorWithProvider(provider)
-
 	case websearch.AgentSpecExa.Name:
 		provider := websearch.NewExaProvider()
 		return websearch.NewToolExecutorWithProvider(provider)
@@ -237,21 +226,6 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 		}
 		return webfetch.NewToolExecutorWithProvider(provider)
 
-	case webfetch.AgentSpecFirecrawl.Name:
-		key := ""
-		if cfg.APIKeyValue != nil {
-			key = strings.TrimSpace(*cfg.APIKeyValue)
-		}
-		baseURL := ""
-		if cfg.BaseURL != nil {
-			baseURL = strings.TrimRight(strings.TrimSpace(*cfg.BaseURL), "/")
-		}
-		if key == "" && baseURL == "" {
-			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"api_key"}}
-		}
-		provider := webfetch.NewFirecrawlProvider(key, baseURL)
-		return webfetch.NewToolExecutorWithProvider(provider)
-
 	case webfetch.AgentSpecBasic.Name:
 		provider := webfetch.NewBasicProvider()
 		return webfetch.NewToolExecutorWithProvider(provider)
@@ -290,9 +264,9 @@ func injectSpawnAgentTools(ctx context.Context, rc *RunContext) {
 
 	personaKeys := loadPersonaKeys(ctx, rc)
 	executor := &spawnagent.ToolExecutor{
-		Control:             rc.SubAgentControl,
-		PersonaKeys:         personaKeys,
-		AccountID:           rc.Run.AccountID,
+		Control:     rc.SubAgentControl,
+		PersonaKeys: personaKeys,
+		AccountID:   rc.Run.AccountID,
 	}
 	specs := []tools.AgentToolSpec{
 		spawnagent.AgentSpec,

@@ -261,14 +261,12 @@ export function SearchFetchSettings({ accessToken }: Props) {
     { value: 'none', label: ds.providerNone },
     { value: 'jina', label: ds.fetchProviderJina },
     { value: 'basic', label: ds.fetchProviderBasic },
-    { value: 'firecrawl', label: ds.fetchProviderFirecrawl },
   ]
   const searchProviderOptions = [
     { value: 'none', label: ds.providerNone },
     { value: 'basic', label: ds.searchProviderBasic },
     { value: 'tavily', label: ds.searchProviderTavily },
     { value: 'exa', label: ds.searchProviderExa },
-    { value: 'searxng', label: ds.searchProviderSearxng },
   ]
   const xSearchProviderOptions = [
     { value: 'none', label: ds.providerNone },
@@ -327,37 +325,6 @@ export function SearchFetchSettings({ accessToken }: Props) {
                   )}
                 />
               )}
-              {config.fetch.provider === 'firecrawl' && (
-                <>
-                  <SettingsRow
-                    title={ds.apiKeyLabel}
-                    description={ds.fetchProviderFirecrawl}
-                    control={(
-                      <PasswordInput
-                        value={config.fetch.firecrawlApiKey ?? ''}
-                        onChange={(value) => patchFetch({ firecrawlApiKey: value || undefined, firecrawlApiKeyStored: false })}
-                        placeholder="fc-..."
-                        showLabel={ds.connectorShowSecret}
-                        hideLabel={ds.connectorHideSecret}
-                      />
-                    )}
-                  />
-                  <SettingsRow
-                    title={ds.baseUrlLabel}
-                    description={ds.fetchProviderFirecrawl}
-                    control={(
-                      <SettingsInput
-                        type="text"
-                        value={config.fetch.firecrawlBaseUrl ?? ''}
-                        onChange={(event) => patchFetch({ firecrawlBaseUrl: event.target.value || undefined })}
-                        placeholder="https://api.firecrawl.dev"
-                        variant="md"
-                      />
-                    )}
-                  />
-                </>
-              )}
-
               <SettingsRow
                 title={ds.searchConnectorTitle}
                 description={ds.searchConnectorDesc}
@@ -385,22 +352,6 @@ export function SearchFetchSettings({ accessToken }: Props) {
                   )}
                 />
               )}
-              {config.search.provider === 'searxng' && (
-                <SettingsRow
-                  title={ds.baseUrlLabel}
-                  description={ds.searchProviderSearxng}
-                  control={(
-                    <SettingsInput
-                      type="text"
-                      value={config.search.searxngBaseUrl ?? ''}
-                      onChange={(event) => patchSearch({ searxngBaseUrl: event.target.value || undefined })}
-                      placeholder="http://localhost:4000"
-                      variant="md"
-                    />
-                  )}
-                />
-              )}
-
               <SettingsRow
                 title={ds.xSearchConnectorTitle}
                 description={ds.xSearchConnectorDesc}

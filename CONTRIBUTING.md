@@ -8,7 +8,6 @@ Thank you for considering a contribution to Arkloop. This document covers the pr
 
 - Go 1.26+
 - Node.js 20+ with pnpm
-- Docker and Docker Compose
 
 ### Local Development Setup
 
@@ -17,7 +16,6 @@ git clone https://github.com/qqqqqf-q/Arkloop.git
 cd Arkloop
 
 # Desktop runs embedded (SQLite in-process); no external infrastructure needed.
-# Optional modules (searxng/firecrawl) start via their compose profiles.
 
 # Copy and configure environment
 cp .env.example .env
@@ -42,11 +40,10 @@ src/
     tui/          # Terminal UI
     shared/       # Shared frontend packages
   services/
-    desktop/      # Embedded runtime: API + worker + bridge in one process
+    desktop/      # Embedded runtime: API + worker in one process
     cli/          # ark command-line (headless entrypoint)
     api/          # Core REST API (Go library)
     worker/       # Job execution engine (Go library)
-    bridge/       # Module/container management (Go library)
     shared/       # Shared Go libraries
   personas/       # Agent persona templates
   plugins/        # Bundled plugins

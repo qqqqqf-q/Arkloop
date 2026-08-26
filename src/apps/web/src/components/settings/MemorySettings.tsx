@@ -609,7 +609,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [impressionLoading, setImpressionLoading] = useState(false)
   const impressionPollRef = useRef<{ interval: ReturnType<typeof setInterval> | null; safety: ReturnType<typeof setTimeout> | null }>({ interval: null, safety: null })
-  // Runtime health probe (lightweight — no full Bridge UI, just status)
+  // Runtime health probe (lightweight — status only)
   const [health, setHealth] = useState<HealthStatus>('checking')
   const [healthLabel, setHealthLabel] = useState('')
 

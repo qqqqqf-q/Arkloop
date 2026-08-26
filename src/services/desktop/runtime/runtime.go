@@ -15,7 +15,6 @@ import (
 	"time"
 
 	api "arkloop/services/api"
-	bridge "arkloop/services/bridge"
 	"arkloop/services/shared/desktop"
 	sharedlog "arkloop/services/shared/log"
 	worker "arkloop/services/worker"
@@ -24,9 +23,8 @@ import (
 const desktopQuietLogsEnv = "ARKLOOP_DESKTOP_QUIET_LOGS"
 
 type Options struct {
-	Component   string
-	StartBridge bool
-	Quiet       bool
+	Component string
+	Quiet     bool
 }
 
 func Run(ctx context.Context, opts Options) error {
@@ -95,14 +93,6 @@ func Run(ctx context.Context, opts Options) error {
 		workerErr <- worker.StartDesktop(workerCtx)
 	}()
 
-	if opts.StartBridge {
-		go func() {
-			if err := bridge.StartDesktop(apiCtx); err != nil {
-				slog.Error("bridge error", "err", err)
-			}
-		}()
-	}
-
 	var firstErr error
 	select {
 	case err := <-apiErr:
@@ -157,11 +147,6 @@ func EnsureToken() error {
 		token = "arkloop-desktop-" + hex.EncodeToString(b)
 		if err := os.Setenv("ARKLOOP_DESKTOP_TOKEN", token); err != nil {
 			return fmt.Errorf("setenv ARKLOOP_DESKTOP_TOKEN: %w", err)
-		}
-	}
-	if strings.TrimSpace(os.Getenv("ARKLOOP_BRIDGE_AUTH_TOKEN")) == "" {
-		if err := os.Setenv("ARKLOOP_BRIDGE_AUTH_TOKEN", token); err != nil {
-			return fmt.Errorf("setenv ARKLOOP_BRIDGE_AUTH_TOKEN: %w", err)
 		}
 	}
 

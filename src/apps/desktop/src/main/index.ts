@@ -8,11 +8,9 @@ import {
   stopSidecar,
   setStatusListener,
   setRuntimeListener,
-  setBridgeUrlListener,
   setMemoryConfig,
   setNetworkConfig,
   getSidecarRuntime,
-  getBridgeBaseUrl,
   getDesktopAccessToken,
   ensureOpenCLI,
   type SidecarRuntime,
@@ -186,13 +184,6 @@ function syncRuntimeToRenderer(runtime: SidecarRuntime): void {
   const win = getWindow()
   if (win) {
     win.webContents.send('arkloop:sidecar:runtime-changed', runtime)
-  }
-}
-
-function syncBridgeBaseUrlToRenderer(bridgeBaseUrl: string): void {
-  const win = getWindow()
-  if (win) {
-    win.webContents.send('arkloop:bridge:url-changed', bridgeBaseUrl)
   }
 }
 
@@ -512,9 +503,6 @@ if (!hasSingleInstanceLock) {
     setRuntimeListener((runtime) => {
       handleRuntimeUpdate(runtime)
     })
-    setBridgeUrlListener((bridgeBaseUrl) => {
-      syncBridgeBaseUrlToRenderer(bridgeBaseUrl)
-    })
 
     registerIpcHandlers(getWindow, {
       applyConfigUpdate,
@@ -543,7 +531,6 @@ if (!hasSingleInstanceLock) {
         sent = true
         syncRuntimeToRenderer(getSidecarRuntime())
         syncConfigToRenderer(loadConfig())
-        syncBridgeBaseUrlToRenderer(getBridgeBaseUrl())
       }
     })()
     mainWindow.webContents.once('dom-ready', pushEmbeddedStateToRendererOnce)

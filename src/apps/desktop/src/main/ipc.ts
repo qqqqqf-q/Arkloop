@@ -11,13 +11,11 @@ import {
   checkSidecarVersion,
   isSidecarAvailable,
   getDesktopAccessToken,
-  getBridgeBaseUrl,
   type SidecarRuntime,
 } from './sidecar'
 import { checkForUpdates, applyUpdate, getCachedUpdateStatus } from './updater'
 import { getAppUpdaterState, checkForAppUpdates, downloadAppUpdate, installAppUpdate } from './app-updater'
 import { getCommandLineToolStatus, installCommandLineTool } from './cli-tool'
-import { DEFAULT_CONFIG } from './types'
 import { getDesktopLogDir, getDesktopLogPaths } from './logging'
 import { applyOnboardingImport, detectOnboardingImportSources, type OnboardingImportApplyRequest } from './onboarding-import'
 import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfig } from './types'
@@ -122,7 +120,6 @@ export function registerIpcHandlers(
     event.returnValue = {
       ...loadConfig(),
       desktopAccessToken: getDesktopAccessToken(),
-      bridgeBaseUrl: getBridgeBaseUrl(),
     }
   })
 
@@ -752,13 +749,6 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         ? secretPreview(activeFetch.key_prefix)
         : undefined,
       jinaApiKeyStored: activeFetch?.provider_name === 'web_fetch.jina' && Boolean(activeFetch.key_prefix),
-      firecrawlApiKey: activeFetch?.provider_name === 'web_fetch.firecrawl'
-        ? secretPreview(activeFetch.key_prefix)
-        : undefined,
-      firecrawlApiKeyStored: activeFetch?.provider_name === 'web_fetch.firecrawl' && Boolean(activeFetch.key_prefix),
-      firecrawlBaseUrl: activeFetch?.provider_name === 'web_fetch.firecrawl'
-        ? activeFetch.base_url ?? DEFAULT_CONFIG.connectors.fetch.firecrawlBaseUrl
-        : DEFAULT_CONFIG.connectors.fetch.firecrawlBaseUrl,
     },
     search: {
       provider: activeSearch
@@ -768,9 +758,6 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         ? secretPreview(activeSearch.key_prefix)
         : undefined,
       tavilyApiKeyStored: activeSearch?.provider_name === 'web_search.tavily' && Boolean(activeSearch.key_prefix),
-      searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng'
-        ? activeSearch.base_url ?? DEFAULT_CONFIG.connectors.search.searxngBaseUrl
-        : DEFAULT_CONFIG.connectors.search.searxngBaseUrl,
     },
     xSearch: {
       provider: activeXSearch
@@ -789,8 +776,6 @@ function providerNameToFetch(providerName: string): ConnectorsConfig['fetch']['p
   switch (providerName) {
     case 'web_fetch.basic':
       return 'basic'
-    case 'web_fetch.firecrawl':
-      return 'firecrawl'
     case 'web_fetch.jina':
       return 'jina'
     default:
@@ -802,8 +787,6 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
   switch (providerName) {
     case 'web_search.basic':
       return 'basic'
-    case 'web_search.searxng':
-      return 'searxng'
     case 'web_search.exa':
       return 'exa'
     case 'web_search.tavily':
@@ -853,13 +836,11 @@ function hasLegacySearchConfig(connectors: ConnectorsConfig): boolean {
   return connectors.search.provider === 'basic'
     || (connectors.search.provider === 'tavily' && Boolean(connectors.search.tavilyApiKey))
     || connectors.search.provider === 'exa'
-    || (connectors.search.provider === 'searxng' && Boolean(connectors.search.searxngBaseUrl))
 }
 
 function hasLegacyFetchConfig(connectors: ConnectorsConfig): boolean {
   return connectors.fetch.provider === 'basic'
     || (connectors.fetch.provider === 'jina' && Boolean(connectors.fetch.jinaApiKey))
-    || (connectors.fetch.provider === 'firecrawl' && Boolean(connectors.fetch.firecrawlBaseUrl))
 }
 
 async function applyConnectorConfig(connectors: ConnectorsConfig): Promise<void> {
@@ -887,13 +868,6 @@ async function applySearchConnector(search: ConnectorsConfig['search']): Promise
     await activateToolProvider('web_search', 'web_search.exa')
     return
   }
-  if (search.provider === 'searxng') {
-    await activateToolProvider('web_search', 'web_search.searxng')
-    await upsertToolProviderCredential('web_search', 'web_search.searxng', {
-      base_url: search.searxngBaseUrl ?? '',
-    })
-    return
-  }
 }
 
 async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<void> {
@@ -910,16 +884,6 @@ async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<vo
       })
     }
     return
-  }
-  if (fetch.provider === 'firecrawl') {
-    await activateToolProvider('web_fetch', 'web_fetch.firecrawl')
-    const credential: Record<string, string> = {
-      base_url: fetch.firecrawlBaseUrl ?? '',
-    }
-    if (!fetch.firecrawlApiKeyStored) {
-      credential.api_key = fetch.firecrawlApiKey ?? ''
-    }
-    await upsertToolProviderCredential('web_fetch', 'web_fetch.firecrawl', credential)
   }
 }
 

@@ -67,14 +67,14 @@ function normalizeLocalConfig(local: unknown): LocalConfig {
 }
 
 function normalizeFetchProvider(p: unknown): FetchProvider {
-  return p === 'none' || p === 'jina' || p === 'basic' || p === 'firecrawl'
+  return p === 'none' || p === 'jina' || p === 'basic'
     ? p
     : DEFAULT_CONFIG.connectors.fetch.provider
 }
 
 function normalizeSearchProvider(p: unknown): SearchProvider {
   if (p === 'browser' || p === 'duckduckgo') return 'basic'
-  if (p === 'none' || p === 'basic' || p === 'tavily' || p === 'exa' || p === 'searxng') return p
+  if (p === 'none' || p === 'basic' || p === 'tavily' || p === 'exa') return p
   return DEFAULT_CONFIG.connectors.search.provider
 }
 
@@ -88,8 +88,6 @@ function normalizeFetchConnector(raw: unknown): FetchConnectorConfig {
   return {
     provider: normalizeFetchProvider(r.provider),
     ...(typeof r.jinaApiKey === 'string' && r.jinaApiKey ? { jinaApiKey: r.jinaApiKey } : {}),
-    ...(typeof r.firecrawlApiKey === 'string' && r.firecrawlApiKey ? { firecrawlApiKey: r.firecrawlApiKey } : {}),
-    ...(typeof r.firecrawlBaseUrl === 'string' && r.firecrawlBaseUrl ? { firecrawlBaseUrl: r.firecrawlBaseUrl } : {}),
   }
 }
 
@@ -98,7 +96,6 @@ function normalizeSearchConnector(raw: unknown): SearchConnectorConfig {
   return {
     provider: normalizeSearchProvider(r.provider),
     ...(typeof r.tavilyApiKey === 'string' && r.tavilyApiKey ? { tavilyApiKey: r.tavilyApiKey } : {}),
-    ...(typeof r.searxngBaseUrl === 'string' && r.searxngBaseUrl ? { searxngBaseUrl: r.searxngBaseUrl } : {}),
   }
 }
 

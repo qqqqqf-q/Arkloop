@@ -38,9 +38,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: bridge
-            path: src/services/bridge
-            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: cli
             path: src/services/cli
             args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
