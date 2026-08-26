@@ -13,7 +13,6 @@ export type ComponentStatus = {
 }
 
 export type UpdateStatus = {
-  sandbox: { kernel: ComponentStatus; rootfs: ComponentStatus }
   bins: { rtk: ComponentStatus; opencli: ComponentStatus }
 }
 
@@ -21,10 +20,6 @@ type BinSpec = { version: string; repo: string }
 
 type DesktopManifest = {
   version: string
-  sandbox?: {
-    kernel?: { version: string; filename: string }
-    rootfs?: { version: string; filename: string }
-  }
   bins?: {
     rtk?: BinSpec
     opencli?: BinSpec
@@ -61,28 +56,8 @@ function parseDesktopManifest(raw: unknown): DesktopManifest {
   }
 
   const manifest = raw as Record<string, unknown>
-  const sandbox = manifest.sandbox as Record<string, unknown> | undefined
-  const kernel = sandbox?.kernel as Record<string, unknown> | undefined
-  const rootfs = sandbox?.rootfs as Record<string, unknown> | undefined
-  const parsedSandbox: DesktopManifest['sandbox'] = {}
-
-  if (kernel?.version != null || kernel?.filename != null) {
-    parsedSandbox.kernel = {
-      version: assertNonEmptyString(kernel?.version, 'sandbox.kernel.version'),
-      filename: assertNonEmptyString(kernel?.filename, 'sandbox.kernel.filename'),
-    }
-  }
-
-  if (rootfs?.version != null || rootfs?.filename != null) {
-    parsedSandbox.rootfs = {
-      version: assertNonEmptyString(rootfs?.version, 'sandbox.rootfs.version'),
-      filename: assertNonEmptyString(rootfs?.filename, 'sandbox.rootfs.filename'),
-    }
-  }
-
   return {
     version: assertNonEmptyString(manifest.version, 'version'),
-    ...(parsedSandbox.kernel || parsedSandbox.rootfs ? { sandbox: parsedSandbox } : {}),
     ...parseBins(manifest.bins),
   }
 }
@@ -91,7 +66,6 @@ type LocalVersions = VersionsState
 
 const GITHUB_REPO = 'qqqqqf-q/Arkloop'
 const GITHUB_LATEST_MANIFEST_URL = `https://github.com/${GITHUB_REPO}/releases/latest/download/desktop-manifest.json`
-const VM_DIR = path.join(os.homedir(), '.arkloop', 'vm')
 const OPENCLI_VERSION_FILE_LEGACY = path.join(os.homedir(), '.arkloop', 'bin', 'opencli.version.json')
 
 function rtkBinaryName(): string {
@@ -130,21 +104,13 @@ export function getCachedUpdateStatus(): UpdateStatus {
   const local = loadLocalVersions()
   const cache = local.update_check
 
-  const kernelCurrent = normalizeComponentVersion(local.sandbox?.kernel?.version ?? null)
-  const rootfsCurrent = normalizeComponentVersion(local.sandbox?.rootfs?.version ?? null)
   const rtkCurrent = normalizeComponentVersion(local.rtk?.version ?? null)
   const opencliCurrent = normalizeComponentVersion(resolveLocalOpenCLIVersion(local))
 
-  const kernelLatest = normalizeComponentVersion(cache?.sandbox_kernel ?? null)
-  const rootfsLatest = normalizeComponentVersion(cache?.sandbox_rootfs ?? null)
   const rtkLatest = normalizeComponentVersion(cache?.rtk ?? null)
   const opencliLatest = normalizeComponentVersion(cache?.opencli ?? null)
 
   return {
-    sandbox: {
-      kernel: buildComponentStatus(kernelCurrent, kernelLatest),
-      rootfs: buildComponentStatus(rootfsCurrent, rootfsLatest),
-    },
     bins: {
       rtk: buildComponentStatus(rtkCurrent, rtkLatest),
       opencli: buildComponentStatus(opencliCurrent, opencliLatest),
@@ -216,11 +182,6 @@ function normalizeComponentVersion(value: string | null | undefined): string | n
   return trimmed
 }
 
-function hasComponentVersionShape(value: string | undefined): boolean {
-  if (!value) return false
-  return extractVersionToken(value) === value || extractVersionToken(value) === value.replace(/^v/, '')
-}
-
 function readCommandVersion(binaryPath: string, args: string[]): string | null {
   if (!fs.existsSync(binaryPath)) return null
   try {
@@ -281,38 +242,6 @@ function readRTKVersion(): { version: string; updated_at: string } | null {
   }
 }
 
-function readSandboxVersions(): { kernel?: { version: string; updated_at: string }; rootfs?: { version: string; updated_at: string } } | null {
-  if (!fs.existsSync(VM_DIR)) return null
-  const candidates: {
-    kernel?: { version: string; updated_at: string }
-    rootfs?: { version: string; updated_at: string }
-  } = {}
-  try {
-    const files = fs.readdirSync(VM_DIR)
-    for (const file of files) {
-      const filePath = path.join(VM_DIR, file)
-      const stat = fs.statSync(filePath)
-      if (!stat.isFile()) continue
-      const version = extractVersionToken(file)
-      if (!version) continue
-      const lower = file.toLowerCase()
-      const entry = { version, updated_at: stat.mtime.toISOString() }
-      if (lower.includes('kernel')) {
-        if (!candidates.kernel || stat.mtime > new Date(candidates.kernel.updated_at)) {
-          candidates.kernel = entry
-        }
-      } else if (lower.includes('rootfs')) {
-        if (!candidates.rootfs || stat.mtime > new Date(candidates.rootfs.updated_at)) {
-          candidates.rootfs = entry
-        }
-      }
-    }
-  } catch {
-    return null
-  }
-  return candidates.kernel || candidates.rootfs ? candidates : null
-}
-
 export async function syncLocalVersions(): Promise<LocalVersions> {
   const next = { ...loadLocalVersions() }
 
@@ -325,27 +254,6 @@ export async function syncLocalVersions(): Promise<LocalVersions> {
   const rtk = readRTKVersion()
   if (rtk) next.rtk = rtk
 
-  if (next.sandbox) {
-    const cleanedSandbox = { ...next.sandbox }
-    if (cleanedSandbox.kernel && !hasComponentVersionShape(cleanedSandbox.kernel.version)) {
-      delete cleanedSandbox.kernel
-    }
-    if (cleanedSandbox.rootfs && !hasComponentVersionShape(cleanedSandbox.rootfs.version)) {
-      delete cleanedSandbox.rootfs
-    }
-    next.sandbox = (cleanedSandbox.kernel || cleanedSandbox.rootfs) ? cleanedSandbox : undefined
-  }
-
-  const detectedSandbox = readSandboxVersions()
-  if (detectedSandbox) {
-    if (detectedSandbox.kernel && !next.sandbox?.kernel) {
-      next.sandbox = { ...next.sandbox, kernel: detectedSandbox.kernel }
-    }
-    if (detectedSandbox.rootfs && !next.sandbox?.rootfs) {
-      next.sandbox = { ...next.sandbox, rootfs: detectedSandbox.rootfs }
-    }
-  }
-
   saveLocalVersions(next)
   return next
 }
@@ -354,20 +262,12 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   const local = loadLocalVersions()
   const manifest = await fetchManifest()
 
-  const kernelCurrent = normalizeComponentVersion(local.sandbox?.kernel?.version ?? null)
-  const rootfsCurrent = normalizeComponentVersion(local.sandbox?.rootfs?.version ?? null)
-  const kernelLatest = normalizeComponentVersion(manifest.sandbox?.kernel?.version ?? null)
-  const rootfsLatest = normalizeComponentVersion(manifest.sandbox?.rootfs?.version ?? null)
   const rtkCurrent = normalizeComponentVersion(local.rtk?.version ?? null)
   const rtkLatest = normalizeComponentVersion(manifest.bins?.rtk?.version ?? null)
   const opencliCurrent = normalizeComponentVersion(resolveLocalOpenCLIVersion(local))
   const opencliLatest = normalizeComponentVersion(manifest.bins?.opencli?.version ?? null)
 
   const next: UpdateStatus = {
-    sandbox: {
-      kernel: buildComponentStatus(kernelCurrent, kernelLatest),
-      rootfs: buildComponentStatus(rootfsCurrent, rootfsLatest),
-    },
     bins: {
       rtk: buildComponentStatus(rtkCurrent, rtkLatest),
       opencli: buildComponentStatus(opencliCurrent, opencliLatest),
@@ -378,8 +278,6 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
     ...local,
     update_check: {
       checked_at: new Date().toISOString(),
-      sandbox_kernel: kernelLatest,
-      sandbox_rootfs: rootfsLatest,
       rtk: rtkLatest,
       opencli: opencliLatest,
     },
@@ -437,57 +335,11 @@ async function downloadFile(
 }
 
 export async function applyUpdate(
-  component: 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli',
+  component: 'rtk' | 'opencli',
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
   const manifest = await fetchManifest()
   const now = new Date().toISOString()
-
-  if (component === 'sandbox_kernel') {
-    const sandboxKernel = manifest.sandbox?.kernel
-    if (!sandboxKernel) {
-      throw new Error('sandbox kernel update not published')
-    }
-    const { version, filename } = sandboxKernel
-    const destPath = path.join(VM_DIR, filename)
-    await downloadFile(
-      `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${filename}`,
-      destPath,
-      onProgress,
-    )
-    const local = loadLocalVersions()
-    saveLocalVersions({
-      ...local,
-      sandbox: {
-        ...local.sandbox,
-        kernel: { version, updated_at: now },
-      },
-    })
-    return
-  }
-
-  if (component === 'sandbox_rootfs') {
-    const sandboxRootfs = manifest.sandbox?.rootfs
-    if (!sandboxRootfs) {
-      throw new Error('sandbox rootfs update not published')
-    }
-    const { version, filename } = sandboxRootfs
-    const destPath = path.join(VM_DIR, filename)
-    await downloadFile(
-      `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${filename}`,
-      destPath,
-      onProgress,
-    )
-    const local = loadLocalVersions()
-    saveLocalVersions({
-      ...local,
-      sandbox: {
-        ...local.sandbox,
-        rootfs: { version, updated_at: now },
-      },
-    })
-    return
-  }
 
   if (component === 'opencli') {
     const spec = manifest.bins?.opencli

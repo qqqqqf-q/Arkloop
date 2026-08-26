@@ -36,14 +36,8 @@ export type VersionsState = {
   rtk?: { version: string; updated_at: string }
   update_check?: {
     checked_at: string
-    sandbox_kernel?: string | null
-    sandbox_rootfs?: string | null
     rtk?: string | null
     opencli?: string | null
-  }
-  sandbox?: {
-    kernel?: { version: string; updated_at: string }
-    rootfs?: { version: string; updated_at: string }
   }
 }
 

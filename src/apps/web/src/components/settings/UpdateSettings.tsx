@@ -20,10 +20,6 @@ type ComponentStatus = {
 }
 
 type UpdateStatus = {
-  sandbox: {
-    kernel: ComponentStatus
-    rootfs: ComponentStatus
-  }
   bins: {
     rtk: ComponentStatus
     opencli: ComponentStatus
@@ -380,12 +376,8 @@ export function UpdateSettingsContent() {
 
   const rows: ComponentRow[] = updateStatus
     ? [
-        { key: 'sandbox_kernel',   label: 'Sandbox Kernel',  status: updateStatus.sandbox.kernel },
-        { key: 'sandbox_rootfs',   label: 'Sandbox Rootfs',  status: updateStatus.sandbox.rootfs },
-        ...(updateStatus.bins ? [
-          { key: 'rtk' as UpdaterComponent,     label: 'RTK',      status: updateStatus.bins.rtk },
-          { key: 'opencli' as UpdaterComponent,  label: 'AutoCLI',  status: updateStatus.bins.opencli },
-        ] : []),
+        { key: 'rtk' as UpdaterComponent,     label: 'RTK',      status: updateStatus.bins.rtk },
+        { key: 'opencli' as UpdaterComponent,  label: 'AutoCLI',  status: updateStatus.bins.opencli },
       ]
     : []
 

@@ -279,11 +279,10 @@ export type AppUpdaterState = {
 }
 
 export type UpdaterStatus = {
-  sandbox: { kernel: UpdaterComponentStatus; rootfs: UpdaterComponentStatus }
   bins: { rtk: UpdaterComponentStatus; opencli: UpdaterComponentStatus }
 }
 
-export type UpdaterComponent = 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
+export type UpdaterComponent = 'rtk' | 'opencli'
 
 export type CommandLineToolStatus = {
   available: boolean

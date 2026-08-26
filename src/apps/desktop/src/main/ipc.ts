@@ -225,14 +225,11 @@ export function registerIpcHandlers(
     return getCachedUpdateStatus()
   })
 
-  ipcMain.handle('arkloop:updater:apply', async (_event, { component }: { component: 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli' }) => {
+  ipcMain.handle('arkloop:updater:apply', async (_event, { component }: { component: 'rtk' | 'opencli' }) => {
     const win = getWindow()
     await applyUpdate(component, (progress) => {
       if (win) win.webContents.send('arkloop:updater:progress', { component, ...progress })
     })
-    if (component === 'sandbox_kernel' || component === 'sandbox_rootfs') {
-      await controller.restartLocalSidecar()
-    }
     if (win) win.webContents.send('arkloop:updater:status-changed', getCachedUpdateStatus())
     return { ok: true }
   })
