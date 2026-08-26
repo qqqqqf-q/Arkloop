@@ -161,8 +161,11 @@ var registry = []ToolMeta{
 			"  - When staging files, prefer adding specific files by name rather than using \"git add -A\" or \"git add .\", which can accidentally include sensitive files or large binaries.\n" +
 			"  - NEVER commit changes unless the user explicitly asks you to.\n" +
 			"Work in the current working directory on the user's machine. " +
-			"Reference outputs with the exact absolute file_path (e.g. [report](/Users/name/project/report.html)). " +
-			"Never invent file paths.",
+			"Reference outputs with the real resource you have:\n" +
+			"  • files in the current working directory → reference the exact absolute file_path (e.g. [report](/Users/name/project/report.html))\n" +
+			"  • running web apps or pages that should open in the right panel → reference as browser:<http-or-https-url>, for example [preview](browser:http://localhost:5173)\n" +
+			"Normal http/https Markdown links open externally; use browser: only when the user should preview a URL inside Arkloop. " +
+			"Never invent file paths or preview URLs.",
 	},
 	{
 		Name:      "continue_process",

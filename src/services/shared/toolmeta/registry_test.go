@@ -22,6 +22,9 @@ func TestShellToolDescriptionsUseLocalMachineSemantics(t *testing.T) {
 	if !strings.Contains(execDesc, "exact absolute file_path") {
 		t.Fatalf("exec_command description should prefer absolute file paths: %s", execDesc)
 	}
+	if !strings.Contains(execDesc, "browser:<http-or-https-url>") || !strings.Contains(execDesc, "browser:http://localhost:5173") {
+		t.Fatalf("exec_command description should explain browser panel preview links: %s", execDesc)
+	}
 	for _, stale := range []string{"/tmp/output/", "/workspace/", "sandbox"} {
 		if strings.Contains(execDesc, stale) {
 			t.Fatalf("exec_command description should not reference %q: %s", stale, execDesc)
