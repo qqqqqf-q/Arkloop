@@ -30,7 +30,6 @@ var toolProviderCatalog = []toolProviderDefinition{
 			{Key: "model", Label: "Model", Type: "string", Required: false, Default: "MiniMax-VL-01", Placeholder: "MiniMax-VL-01"},
 		},
 	},
-	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox-docker:19002"},
 }
 
 func findProviderDef(groupName string, providerName string) (toolProviderDefinition, bool) {

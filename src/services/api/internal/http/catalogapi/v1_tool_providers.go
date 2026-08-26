@@ -206,7 +206,7 @@ func listToolProviders(
 	}
 	oauthConnected := loadToolProviderOAuthConnectedMap(r.Context(), pool, ownerKind, ownerUserID)
 
-	groupOrder := []string{"web_search", "x_search", "web_fetch", "read", "sandbox", "memory"}
+	groupOrder := []string{"web_search", "x_search", "web_fetch", "read", "memory"}
 	groups := make([]toolProviderGroupResponse, 0, len(groupOrder))
 	for _, groupName := range groupOrder {
 		items := []toolProviderItemResponse{}

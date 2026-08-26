@@ -14,7 +14,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
@@ -38,13 +37,6 @@ type desktopTPList struct {
 }
 
 func TestDesktopToolProvidersListActivateAndConfigWebSearch(t *testing.T) {
-	prevProbe := catalogapiTestSwapDesktopSandboxHealthProbe(func(addr string) bool {
-		return addr == ""
-	})
-	defer prevProbe()
-
-	desktop.SetExecutionMode("local")
-	desktop.SetSandboxAddr("")
 	desktop.SetMemoryRuntime("")
 
 	ctx := context.Background()
@@ -240,13 +232,6 @@ func TestDesktopToolProvidersListActivateAndConfigWebSearch(t *testing.T) {
 }
 
 func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testing.T) {
-	prevProbe := catalogapiTestSwapDesktopSandboxHealthProbe(func(addr string) bool {
-		return addr == ""
-	})
-	defer prevProbe()
-
-	desktop.SetExecutionMode("local")
-	desktop.SetSandboxAddr("")
 	desktop.SetMemoryRuntime("")
 
 	ctx := context.Background()
@@ -396,136 +381,4 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 	if !basicFound || !tavilyFound || !exaFound {
 		t.Fatalf("expected basic, tavily, and exa in payload: basic=%v tavily=%v exa=%v", basicFound, tavilyFound, exaFound)
 	}
-}
-
-func TestDesktopToolProvidersListSandboxDockerRuntime(t *testing.T) {
-	prevProbe := catalogapiTestSwapDesktopSandboxHealthProbe(func(addr string) bool {
-		return addr == "127.0.0.1:19002"
-	})
-	defer prevProbe()
-
-	desktop.SetExecutionMode("local")
-	desktop.SetSandboxAddr("127.0.0.1:19002")
-	desktop.SetMemoryRuntime("")
-
-	ctx := context.Background()
-	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "tp-sandbox.db"))
-	if err != nil {
-		t.Fatalf("auto migrate sqlite: %v", err)
-	}
-	defer sqlitePool.Close()
-
-	pool := sqlitepgx.New(sqlitePool.Unwrap())
-	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
-		t.Fatalf("seed desktop user: %v", err)
-	}
-
-	userRepo, err := data.NewUserRepository(pool)
-	if err != nil {
-		t.Fatalf("new user repo: %v", err)
-	}
-	credRepo, err := data.NewUserCredentialRepository(pool)
-	if err != nil {
-		t.Fatalf("new credential repo: %v", err)
-	}
-	membershipRepo, err := data.NewAccountMembershipRepository(pool)
-	if err != nil {
-		t.Fatalf("new membership repo: %v", err)
-	}
-	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
-	if err != nil {
-		t.Fatalf("new refresh token repo: %v", err)
-	}
-	projectRepo, err := data.NewProjectRepository(pool)
-	if err != nil {
-		t.Fatalf("new project repo: %v", err)
-	}
-	toolProvidersRepo, err := data.NewToolProviderConfigsRepository(pool)
-	if err != nil {
-		t.Fatalf("new tool providers repo: %v", err)
-	}
-
-	key := make([]byte, 32)
-	for i := range key {
-		key[i] = byte(i + 23)
-	}
-	ring, err := apiCrypto.NewKeyRing(map[int][]byte{1: key})
-	if err != nil {
-		t.Fatalf("new key ring: %v", err)
-	}
-	secretsRepo, err := data.NewSecretsRepository(pool, ring)
-	if err != nil {
-		t.Fatalf("secrets repo: %v", err)
-	}
-
-	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
-	if err != nil {
-		t.Fatalf("new password hasher: %v", err)
-	}
-	tokenService, err := auth.NewJwtAccessTokenService("desktop-tp-sandbox-test-secret-32by", 3600, 86400)
-	if err != nil {
-		t.Fatalf("new token service: %v", err)
-	}
-	authService, err := auth.NewService(
-		userRepo,
-		credRepo,
-		membershipRepo,
-		passwordHasher,
-		tokenService,
-		refreshTokenRepo,
-		projectRepo,
-	)
-	if err != nil {
-		t.Fatalf("new auth service: %v", err)
-	}
-
-	handler := NewHandler(HandlerConfig{
-		Logger:                  slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Pool:                    pool,
-		AuthService:             authService,
-		AccountMembershipRepo:   membershipRepo,
-		ToolProviderConfigsRepo: toolProvidersRepo,
-		SecretsRepo:             secretsRepo,
-		ProjectRepo:             projectRepo,
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(nethttp.MethodGet, "/v1/tool-providers", nil)
-	setDesktopTestAuthHeader(t, handler, req)
-	handler.ServeHTTP(rec, req)
-	if rec.Code != nethttp.StatusOK {
-		t.Fatalf("list status %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var payload desktopTPList
-	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode list: %v", err)
-	}
-
-	var dockerFound bool
-	for _, group := range payload.Groups {
-		if group.GroupName != "sandbox" {
-			continue
-		}
-		for _, provider := range group.Providers {
-			switch provider.ProviderName {
-			case "sandbox.docker":
-				dockerFound = true
-				if provider.RuntimeStatus != "available" {
-					t.Fatalf("expected sandbox.docker available, got %q", provider.RuntimeStatus)
-				}
-			default:
-				t.Fatalf("unexpected sandbox provider %q in payload", provider.ProviderName)
-			}
-		}
-	}
-	if !dockerFound {
-		t.Fatalf("expected sandbox.docker in payload")
-	}
-}
-
-func catalogapiTestSwapDesktopSandboxHealthProbe(
-	probe func(addr string) bool,
-) func() {
-	return catalogapi.SetDesktopSandboxHealthProbeForTest(probe)
 }
