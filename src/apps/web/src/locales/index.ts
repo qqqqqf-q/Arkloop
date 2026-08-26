@@ -1636,8 +1636,6 @@ export interface LocaleStrings {
     localModulesInstalled: string;
     localModulesInstalling: string;
     localModulesDependsOn: string;
-    localModulesSandboxTitle: string;
-    localModulesSandboxDesc: string;
     localModulesMemoryTitle: string;
     localModulesMemoryDesc: string;
     localModulesSearchTitle: string;

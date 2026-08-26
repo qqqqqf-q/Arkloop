@@ -1661,9 +1661,6 @@ export const en: LocaleStrings = {
     localModulesInstalled: "Installed",
     localModulesInstalling: "Installing...",
     localModulesDependsOn: "Depends on",
-    localModulesSandboxTitle: "Sandbox",
-    localModulesSandboxDesc:
-      "Run code safely in an isolated local environment",
     localModulesMemoryTitle: "Memory system",
     localModulesMemoryDesc:
       "Add long-term memory with embeddings and vector storage",
@@ -1700,7 +1697,7 @@ export const en: LocaleStrings = {
     completionTitle: "All set",
     completionDesc: "You are ready to start chatting",
     completionModulesHint:
-      "Optional local modules (Sandbox, Memory, Search) can be enabled later in Settings",
+      "Optional local modules (SearXNG, Firecrawl) can be enabled later in Settings",
     startChatting: "Start chatting",
     back: "Back",
     next: "Next",

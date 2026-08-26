@@ -1652,8 +1652,6 @@ export const zh: LocaleStrings = {
     localModulesInstalled: "已安装",
     localModulesInstalling: "安装中...",
     localModulesDependsOn: "依赖",
-    localModulesSandboxTitle: "Sandbox",
-    localModulesSandboxDesc: "为代码执行提供隔离的本地沙箱环境",
     localModulesMemoryTitle: "记忆系统",
     localModulesMemoryDesc:
       "添加 embedding 与向量存储，让 Arkloop 拥有长期记忆",
@@ -1688,7 +1686,7 @@ export const zh: LocaleStrings = {
     completionTitle: "设置完成",
     completionDesc: "一切就绪，开始对话吧",
     completionModulesHint:
-      "可选本地模块（Sandbox、记忆、搜索）可以随时在设置中启用",
+      "可选本地模块（SearXNG、Firecrawl）可以随时在设置中启用",
     startChatting: "开始对话",
     back: "返回",
     next: "下一步",
