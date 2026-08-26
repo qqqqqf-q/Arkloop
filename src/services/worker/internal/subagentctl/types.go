@@ -157,7 +157,6 @@ type ContextSnapshotRuntime struct {
 	RouteID        string   `json:"route_id,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	ApprovalPolicy string   `json:"approval_policy,omitempty"`
-	SandboxPolicy  string   `json:"sandbox_policy,omitempty"`
 }
 
 type ContextSnapshotMemory struct {

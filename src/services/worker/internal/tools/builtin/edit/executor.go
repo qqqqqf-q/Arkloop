@@ -44,7 +44,7 @@ func (e *Executor) Execute(
 		replaceAll = v
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 
 	// create mode
 	if oldString == "" {

@@ -115,7 +115,7 @@ func (e *Executor) Execute(
 	}
 	fileType, _ := args["file_type"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 
 	rgExtra := buildRgExtraFlags(caseSensitive, multiline, fileType)
 

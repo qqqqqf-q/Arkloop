@@ -94,7 +94,7 @@ func (e *Executor) executePlanBound(
 		return blocked
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 	items, err := updatePlanTodos(ctx, backend, planPath, updates)
 	if err != nil {
 		return errResult(errorArgsInvalid, err.Error(), started)

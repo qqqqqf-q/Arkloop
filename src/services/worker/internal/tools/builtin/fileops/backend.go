@@ -4,12 +4,9 @@ import (
 	"context"
 	"os"
 	"time"
-
-	sharedtoolruntime "arkloop/services/shared/toolruntime"
 )
 
-// Backend abstracts filesystem operations so that file tools
-// can operate on a local directory or through a sandbox exec session.
+// Backend abstracts filesystem operations for file tools.
 type Backend interface {
 	ReadFile(ctx context.Context, path string) ([]byte, error)
 	WriteFile(ctx context.Context, path string, data []byte) error
@@ -24,27 +21,10 @@ type FileInfo struct {
 	ModTime time.Time
 }
 
-// ResolveBackend returns a SandboxExecBackend only when the current runtime
-// should execute file operations in sandbox, otherwise it falls back to a
-// LocalBackend rooted at workDir.
-func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string, runID, accountID, profileRef, workspaceRef string) Backend {
-	resolvedWorkDir := resolveWorkDir(workDir)
-	if useSandboxBackend(snapshot) {
-		return &SandboxExecBackend{
-			baseURL:      snapshot.SandboxBaseURL,
-			authToken:    snapshot.SandboxAuthToken,
-			sessionID:    runID + "/file",
-			accountID:    accountID,
-			profileRef:   profileRef,
-			workspaceRef: workspaceRef,
-		}
-	}
-	return &LocalBackend{WorkDir: resolvedWorkDir}
-}
-
-func IsLocalBackend(backend Backend) bool {
-	_, ok := backend.(*LocalBackend)
-	return ok
+// ResolveBackend 返回以 workDir 为根的本机文件后端。
+// sandbox 后端已移除，本机是唯一文件操作路径。
+func ResolveBackend(workDir string) Backend {
+	return &LocalBackend{WorkDir: resolveWorkDir(workDir)}
 }
 
 func resolveWorkDir(workDir string) string {

@@ -28,9 +28,9 @@ func desktopSkillResolver(db data.DesktopDB) pipeline.SkillResolver {
 	}
 }
 
-func desktopSkillLayoutResolver(useVM bool) pipeline.SkillLayoutResolver {
+func desktopSkillLayoutResolver() pipeline.SkillLayoutResolver {
 	return func(_ context.Context, rc *pipeline.RunContext) (skillstore.PathLayout, error) {
-		return desktopSkillLayout(useVM, rc.Run.ID)
+		return desktopSkillLayout(rc.Run.ID)
 	}
 }
 
@@ -42,10 +42,7 @@ func desktopSkillStoreRoot() (string, error) {
 	return filepath.Join(dataDir, "skills"), nil
 }
 
-func desktopSkillLayout(useVM bool, runID uuid.UUID) (skillstore.PathLayout, error) {
-	if useVM {
-		return skillstore.DefaultPathLayout(), nil
-	}
+func desktopSkillLayout(runID uuid.UUID) (skillstore.PathLayout, error) {
 	storeRoot, err := desktopSkillStoreRoot()
 	if err != nil {
 		return skillstore.PathLayout{}, err
@@ -60,10 +57,7 @@ func desktopSkillLayout(useVM bool, runID uuid.UUID) (skillstore.PathLayout, err
 	}, nil
 }
 
-func desktopSkillPreparer(useVM bool) pipeline.SkillPreparer {
-	if useVM {
-		return nil
-	}
+func desktopSkillPreparer() pipeline.SkillPreparer {
 	return prepareDesktopHostSkills
 }
 

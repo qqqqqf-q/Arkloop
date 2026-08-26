@@ -16,7 +16,6 @@ import (
 )
 
 var runtimeManagedToolNames = map[string]struct{}{
-	"browser":              {},
 	"conversation_context": {},
 	"conversation_search":  {},
 	"thread_list":          {},
@@ -38,7 +37,6 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"memory_thread_search": {},
 	"memory_timeline":      {},
 	"memory_write":         {},
-	"python_execute":       {},
 	"resource_copy":        {},
 	"resize_process":       {},
 	"terminate_process":    {},

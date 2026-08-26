@@ -48,7 +48,7 @@ func shouldInjectPlatformTools(ctx context.Context, rc *RunContext, executor too
 }
 
 func upsertPlatformStatusBlock(rc *RunContext) {
-	groups := []string{"web_search", "web_fetch", "memory", "read", "sandbox"}
+	groups := []string{"web_search", "web_fetch", "memory", "read"}
 
 	var configured []string
 	var unconfigured []string

@@ -528,10 +528,6 @@ func fallbackDisplayDescription(toolName string) string {
 	switch llm.CanonicalToolName(toolName) {
 	case "exec_command":
 		return "Running command"
-	case "python_execute":
-		return "Running Python"
-	case "browser":
-		return "Using browser"
 	default:
 		return ""
 	}

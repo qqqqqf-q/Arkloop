@@ -61,7 +61,7 @@ const (
 	MemoryCategoryPreference MemoryCategory = "preferences" // 偏好设置
 	MemoryCategoryEntity     MemoryCategory = "entities"    // 关键实体（人/项目/技术栈）
 	MemoryCategoryEvent      MemoryCategory = "events"      // 事件记录
-	MemoryCategoryCase       MemoryCategory = "cases"       // 执行案例（Sandbox/Browser 结论）
+	MemoryCategoryCase       MemoryCategory = "cases"       // 执行案例（任务结论）
 	MemoryCategoryPattern    MemoryCategory = "patterns"    // 行为模式
 )
 

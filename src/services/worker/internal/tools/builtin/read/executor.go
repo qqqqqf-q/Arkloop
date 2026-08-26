@@ -173,7 +173,7 @@ func (e *Executor) executeFilePath(
 	started time.Time,
 ) tools.ExecutionResult {
 	filePath := parsed.Source.FilePath
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 
 	tools.TrackPhase(execCtx, toolCallID, "backend.stat")
 	info, err := backend.Stat(ctx, filePath)
