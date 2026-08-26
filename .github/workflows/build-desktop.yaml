@@ -571,7 +571,6 @@ jobs:
         env:
           ARKLOOP_RELEASE_VERSION: ${{ steps.release_meta.outputs.release_version }}
           ARKLOOP_DESKTOP_MANIFEST_OUTPUT: release-files/desktop-manifest.json
-          ARKLOOP_RELEASE_DIR: release-files
         run: node src/apps/desktop/scripts/generate-desktop-manifest.mjs
 
       - name: Validate desktop manifest
@@ -598,16 +597,6 @@ jobs:
           version = require(manifest.get('version'), 'version')
           if version != expected:
               raise SystemExit(f'manifest version mismatch: {version} != {expected}')
-
-          sandbox = manifest.get('sandbox') or {}
-          for key in ('kernel', 'rootfs'):
-              item = sandbox.get(key)
-              if not item:
-                  continue
-              filename = require(item.get('filename'), f'sandbox.{key}.filename')
-              require(item.get('version'), f'sandbox.{key}.version')
-              if not Path('release-files', filename).exists():
-                  raise SystemExit(f'missing manifest asset: {filename}')
           PY
 
       - name: Create GitHub Release

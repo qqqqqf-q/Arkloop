@@ -14,50 +14,14 @@ function readOptionalEnv(name) {
   return process.env[name]?.trim() || null
 }
 
-function ensureFile(filePath) {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`missing asset: ${filePath}`)
-  }
-}
-
 function buildManifest() {
   const version = readEnv('ARKLOOP_RELEASE_VERSION').replace(/^v/, '')
   const outputPath = readEnv('ARKLOOP_DESKTOP_MANIFEST_OUTPUT')
-  const releaseDir = path.resolve(readEnv('ARKLOOP_RELEASE_DIR'))
-
-  const sandboxKernelFilename = readOptionalEnv('ARKLOOP_SANDBOX_KERNEL_FILENAME')
-  const sandboxKernelVersion = readOptionalEnv('ARKLOOP_SANDBOX_KERNEL_VERSION')?.replace(/^v/, '') ?? null
-  const sandboxRootfsFilename = readOptionalEnv('ARKLOOP_SANDBOX_ROOTFS_FILENAME')
-  const sandboxRootfsVersion = readOptionalEnv('ARKLOOP_SANDBOX_ROOTFS_VERSION')?.replace(/^v/, '') ?? null
 
   const rtkVersion = readOptionalEnv('ARKLOOP_RTK_VERSION')?.replace(/^v/, '') ?? null
   const rtkRepo = readOptionalEnv('ARKLOOP_RTK_REPO') ?? null
   const opencliVersion = readOptionalEnv('ARKLOOP_OPENCLI_VERSION')?.replace(/^v/, '') ?? null
   const opencliRepo = readOptionalEnv('ARKLOOP_OPENCLI_REPO') ?? null
-
-  const sandbox = {}
-
-  if (sandboxKernelFilename || sandboxKernelVersion) {
-    if (!sandboxKernelFilename || !sandboxKernelVersion) {
-      throw new Error('sandbox kernel manifest fields must be provided together')
-    }
-    ensureFile(path.join(releaseDir, sandboxKernelFilename))
-    sandbox.kernel = {
-      version: sandboxKernelVersion,
-      filename: sandboxKernelFilename,
-    }
-  }
-
-  if (sandboxRootfsFilename || sandboxRootfsVersion) {
-    if (!sandboxRootfsFilename || !sandboxRootfsVersion) {
-      throw new Error('sandbox rootfs manifest fields must be provided together')
-    }
-    ensureFile(path.join(releaseDir, sandboxRootfsFilename))
-    sandbox.rootfs = {
-      version: sandboxRootfsVersion,
-      filename: sandboxRootfsFilename,
-    }
-  }
 
   const bins = {}
   if (rtkVersion && rtkRepo) {
@@ -69,7 +33,6 @@ function buildManifest() {
 
   const manifest = {
     version,
-    ...(Object.keys(sandbox).length > 0 ? { sandbox } : {}),
     ...(Object.keys(bins).length > 0 ? { bins } : {}),
   }
 
