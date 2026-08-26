@@ -16,9 +16,7 @@ const (
 type ModuleCategory string
 
 const (
-	CategorySandbox        ModuleCategory = "sandbox"
 	CategorySearch         ModuleCategory = "search"
-	CategoryBrowser        ModuleCategory = "browser"
 	CategoryInfrastructure ModuleCategory = "infrastructure"
 )
 
