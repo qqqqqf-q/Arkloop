@@ -33,15 +33,6 @@ vi.mock('@arkloop/shared', async () => {
   }
 })
 
-vi.mock('../api-bridge', () => ({
-  bridgeClient: {
-    getExecutionMode: vi.fn(),
-    performAction: vi.fn(),
-    streamOperation: vi.fn(),
-  },
-  checkBridgeAvailable: vi.fn().mockResolvedValue(false),
-}))
-
 vi.mock('../openExternal', () => ({
   openExternal: vi.fn(),
 }))

@@ -7,8 +7,6 @@ let root: ReturnType<typeof createRoot> | null
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 const addToast = vi.fn()
-const getExecutionMode = vi.fn(async () => 'local' as const)
-const setExecutionMode = vi.fn(async () => {})
 const listPlatformSettings = vi.fn()
 const updatePlatformSetting = vi.fn()
 
@@ -37,12 +35,6 @@ async function loadSubject() {
       updatePlatformSetting,
     }
   })
-  vi.doMock('../api-bridge', () => ({
-    bridgeClient: {
-      getExecutionMode,
-      setExecutionMode,
-    },
-  }))
   vi.doMock('@arkloop/shared', async () => {
     const actual = await vi.importActual<typeof import('@arkloop/shared')>('@arkloop/shared')
     return {
@@ -62,12 +54,8 @@ beforeEach(() => {
   document.body.appendChild(container)
   root = createRoot(container)
   addToast.mockReset()
-  getExecutionMode.mockClear()
-  setExecutionMode.mockClear()
   listPlatformSettings.mockReset()
   updatePlatformSetting.mockReset()
-  getExecutionMode.mockResolvedValue('local')
-  setExecutionMode.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -78,7 +66,6 @@ afterEach(() => {
   root = null
   vi.doUnmock('../storage')
   vi.doUnmock('../api-admin')
-  vi.doUnmock('../api-bridge')
   vi.doUnmock('@arkloop/shared')
   vi.resetModules()
   vi.clearAllMocks()
@@ -117,7 +104,7 @@ describe('ChatSettings', () => {
     expect(container.textContent).not.toContain('请求失败')
   })
 
-  it('命中统一快照时不再重复首屏请求 execution mode 和 platform settings', async () => {
+  it('命中统一快照时不再重复首屏请求 platform settings', async () => {
     const { ChatSettings, LocaleProvider } = await loadSubject()
 
     await act(async () => {
@@ -132,9 +119,7 @@ describe('ChatSettings', () => {
                 'context.compact.persist_trigger_context_pct': '70',
                 'context.compact.target_context_pct': '75',
               },
-              executionMode: 'vm',
               platformSettingsError: '',
-              executionModeError: '',
             }}
           />
         </LocaleProvider>,
@@ -143,8 +128,6 @@ describe('ChatSettings', () => {
     await flushEffects()
 
     expect(listPlatformSettings).not.toHaveBeenCalled()
-    expect(getExecutionMode).not.toHaveBeenCalled()
     expect(container.textContent).toContain('70%')
-    expect(container.textContent).toContain('沙箱：命令在隔离的沙箱中运行')
   })
 })

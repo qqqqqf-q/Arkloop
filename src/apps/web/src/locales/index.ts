@@ -1043,16 +1043,12 @@ export interface LocaleStrings {
     modulesTitle: string;
     modulesDesc: string;
     modulesOffline: string;
-    sandboxTitle: string;
-    sandboxDesc: string;
     memoryTitle: string;
     memoryDesc: string;
     searchTitle: string;
     searchDesc: string;
     crawlerTitle: string;
     crawlerDesc: string;
-    browserTitle: string;
-    browserDesc: string;
     developerTitle: string;
     developerDesc: string;
     debugMode: string;
@@ -1143,9 +1139,6 @@ export interface LocaleStrings {
     chatCompactBannerDone: string;
     chatCompactBannerTrim: string;
     chatCompactBannerLlmFailed: string;
-    chatCompactExecutionModeLabel: string;
-    chatCompactExecutionModeTerminal: string;
-    chatCompactExecutionModeSandbox: string;
     // desktop connectors section
     desktopConnectorsTitle: string;
     desktopConnectorsDesc: string;

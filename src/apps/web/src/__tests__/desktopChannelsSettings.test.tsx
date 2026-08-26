@@ -25,11 +25,6 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../api-admin', () => ({
     listPlatformSettings: vi.fn().mockResolvedValue([]),
   }))
-  vi.doMock('../api-bridge', () => ({
-    bridgeClient: {
-      getExecutionMode: vi.fn().mockResolvedValue('local'),
-    },
-  }))
   vi.doMock('@arkloop/shared/desktop', () => ({
     getDesktopApi: () => ({
       config: {
