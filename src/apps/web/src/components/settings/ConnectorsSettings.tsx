@@ -42,6 +42,7 @@ type CredentialModal = { group: string; provider: ToolProviderItem } | null
 type DescEditTarget = { toolName: string; label: string; description: string } | null
 
 function displayGroupName(group: string): string {
+  if (group === 'shell') return 'Shell'
   if (group === 'read') return 'Read'
   return group
 }
