@@ -115,7 +115,7 @@ func TestListModulesEndpoint(t *testing.T) {
 func TestGetModuleEndpoint(t *testing.T) {
 	_, mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/modules/sandbox-docker", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/modules/searxng", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -128,11 +128,11 @@ func TestGetModuleEndpoint(t *testing.T) {
 		t.Fatalf("json decode: %v", err)
 	}
 
-	if body["id"] != "sandbox-docker" {
-		t.Errorf("id = %v, want %q", body["id"], "sandbox-docker")
+	if body["id"] != "searxng" {
+		t.Errorf("id = %v, want %q", body["id"], "searxng")
 	}
-	if body["name"] != "Sandbox (Docker)" {
-		t.Errorf("name = %v, want %q", body["name"], "Sandbox (Docker)")
+	if body["name"] != "SearXNG" {
+		t.Errorf("name = %v, want %q", body["name"], "SearXNG")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestGetModuleNotFound(t *testing.T) {
 func TestPerformActionInvalidBody(t *testing.T) {
 	_, mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/modules/sandbox-docker/actions", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/modules/searxng/actions", strings.NewReader("not json"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
