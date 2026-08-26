@@ -6,7 +6,7 @@ const (
 	GroupWebSearch     = "web_search"
 	GroupXSearch       = "x_search"
 	GroupWebFetch      = "web_fetch"
-	GroupSandbox       = "sandbox"
+	GroupShell         = "shell"
 	GroupMemory        = "memory"
 	GroupDocument      = "document"
 	GroupOrchestration = "orchestration"
@@ -37,7 +37,7 @@ var groupOrder = []string{
 	GroupWebSearch,
 	GroupXSearch,
 	GroupWebFetch,
-	GroupSandbox,
+	GroupShell,
 	GroupFilesystem,
 	GroupMemory,
 	GroupDocument,
@@ -119,28 +119,13 @@ var registry = []ToolMeta{
 			"Use x_search for questions that specifically need X/Twitter posts, accounts, discourse, or recent social media reactions. " +
 			"Do not use x_search as a general web search replacement; use web_search for normal web pages, docs, news, and broad internet facts.",
 	},
-	// ── sandbox ──
-	{
-		Name:      "python_execute",
-		Group:     GroupSandbox,
-		Label:     "Python execution",
-		ShortDesc: "execute Python code in an isolated sandbox",
-		LLMDescription: "execute Python code in an isolated sandbox. Use for calculations, data processing, or visualization instead of computing manually. " +
-			"Pre-installed: numpy, pandas, matplotlib, plotly, scipy, sympy, pillow, scikit-learn, kaleido. " +
-			"For charts prefer Plotly; use fig.write_image() for PNG, fall back to fig.write_html() only on failure. Do not set pio.renderers. " +
-			"Work in the sandbox current working directory, normally /workspace/. Put final downloadable files in /tmp/output/ only when you want them auto-uploaded as artifacts. " +
-			"Reference outputs with the real resource you have:\n" +
-			"  • /tmp/output/ files appear in result.artifacts → reference as artifact:<key>  (e.g. ![alt](artifact:abc/run/file.png))\n" +
-			"  • files in the current working directory → reference the exact absolute file_path  (e.g. [report](/workspace/data/report.html))\n" +
-			"Only reference artifact keys that actually appear in result.artifacts. " +
-			"Do not invent legacy resource links, artifact keys, or file paths. Never output raw /tmp/output/ paths.",
-	},
+	// ── shell ──
 	{
 		Name:      "exec_command",
-		Group:     GroupSandbox,
+		Group:     GroupShell,
 		Label:     "Command execution",
-		ShortDesc: "run a shell command in the sandbox, either buffered or as an explicit interactive process",
-		LLMDescription: "run a shell command in the sandbox. Default mode is buffered, which executes one command to completion with stdin closed. " +
+		ShortDesc: "run a shell command on the user's local machine, either buffered or as an explicit interactive process",
+		LLMDescription: "run a shell command on the user's local machine. Default mode is buffered, which executes one command to completion with stdin closed. " +
 			"Use follow for long-running output-only processes, stdin for non-PTY processes that need later input, and pty only for real terminal-style interaction. " +
 			"The backend returns a process_ref only for follow/stdin/pty modes. Continue those processes with continue_process, terminate them with terminate_process, and resize only pty processes with resize_process. " +
 			"When you only need to change directories, prefer the cwd parameter instead of prefixing the command with cd &&. " +
@@ -175,54 +160,35 @@ var registry = []ToolMeta{
 			"  - CRITICAL: Always create NEW commits rather than amending, unless the user explicitly requests a git amend. When a pre-commit hook fails, the commit did NOT happen — so --amend would modify the PREVIOUS commit, which may destroy work.\n" +
 			"  - When staging files, prefer adding specific files by name rather than using \"git add -A\" or \"git add .\", which can accidentally include sensitive files or large binaries.\n" +
 			"  - NEVER commit changes unless the user explicitly asks you to.\n" +
-			"Work in the current working directory, normally /workspace/ in sandbox runs. Put final downloadable files in /tmp/output/ only when you want them auto-uploaded as artifacts. " +
-			"Reference outputs with the real resource you have:\n" +
-			"  • /tmp/output/ files appear in result.artifacts → reference as artifact:<key>\n" +
-			"  • files in the current working directory → reference the exact absolute file_path\n" +
-			"  • running web apps or pages that should open in the right panel → reference as browser:<http-or-https-url>, for example [preview](browser:http://localhost:5173)\n" +
-			"Normal http/https Markdown links open externally; use browser: only when the user should preview a URL inside Arkloop. " +
-			"Only reference artifact keys that actually appear in result.artifacts. " +
-			"Do not invent legacy resource links, artifact keys, or file paths. Never output raw /tmp/output/ paths.",
+			"Work in the current working directory on the user's machine. " +
+			"Reference outputs with the exact absolute file_path (e.g. [report](/Users/name/project/report.html)). " +
+			"Never invent file paths.",
 	},
 	{
 		Name:      "continue_process",
-		Group:     GroupSandbox,
+		Group:     GroupShell,
 		Label:     "Continue process",
 		ShortDesc: "read new output from a running process and optionally send stdin",
 		LLMDescription: "continue a running process started by exec_command in follow, stdin, or pty mode. " +
 			"Pass the process_ref and the last next_cursor you received. " +
 			"Omit stdin_text to only read new output. Provide stdin_text together with input_seq when the process accepts stdin. " +
 			"Use close_stdin when the process is waiting for EOF rather than more text. " +
-			"Work in the current working directory, normally /workspace/ in sandbox runs; final downloadable files go to /tmp/output/. " +
 			"Show existing work files by linking the exact absolute file_path. " +
-			"Never invent artifact keys, legacy resource links, or file paths.",
+			"Never invent file paths.",
 	},
 	{
 		Name:           "terminate_process",
-		Group:          GroupSandbox,
+		Group:          GroupShell,
 		Label:          "Terminate process",
-		ShortDesc:      "terminate a running sandbox process by process_ref",
+		ShortDesc:      "terminate a running local process by process_ref",
 		LLMDescription: "terminate a running process started by exec_command. Use when a follow/stdin/pty process should stop and you no longer want to wait for it. Pass the process_ref returned by exec_command.",
 	},
 	{
 		Name:           "resize_process",
-		Group:          GroupSandbox,
+		Group:          GroupShell,
 		Label:          "Resize PTY",
 		ShortDesc:      "resize a running PTY process by process_ref",
 		LLMDescription: "resize a running PTY process started by exec_command with mode=pty. Use only for real terminal sessions when rows or cols need to change. This tool is not for normal buffered commands.",
-	},
-	{
-		Name:      "browser",
-		Group:     GroupSandbox,
-		Label:     "Browser automation",
-		ShortDesc: "run browser automation commands in the sandbox",
-		LLMDescription: "run browser automation commands in the sandbox. Use only when web_search/web_fetch cannot complete the task (JS rendering, DOM interaction, login flows, multi-tab navigation). " +
-			"Pass the raw subcommand: navigate <url>, snapshot, screenshot, click <ref>, type <ref> <text>, fill <ref> <text>, press <key>, tab list, tab select <index>, console, network. " +
-			"Session reuse, waiting, retry, and recovery are handled by the backend; do not pass session_mode/share_scope. " +
-			"Workflow: navigate -> snapshot (get refs) -> interact -> snapshot again after navigation or UI changes. " +
-			"Snapshot results are compact by default: URL, title, clickable refs, form controls, and visible-text summary. Use screenshot only when you need a visual image. " +
-			"Set yield_time_ms high enough for pages to settle; avoid tiny values such as 50ms, prefer 1500-5000ms. " +
-			"Only reference artifact keys that actually appear in result.artifacts; never invent artifact keys.",
 	},
 	// ── filesystem ──
 	{
@@ -515,7 +481,7 @@ var registry = []ToolMeta{
 			"The host runtime provides preloaded SVG helper classes and host skin tokens; keep the outer shell transparent and host-native. " +
 			"To send a follow-up message from a widget: call sendPrompt(text). " +
 			"Optionally set loading_messages to 1-4 short lines shown while widget_code streams. " +
-			"NEVER use python_execute + exec_command open for HTML visualizations.",
+			"NEVER use exec_command to serve or open HTML visualizations.",
 	},
 	{
 		Name:      "artifact_guidelines",
@@ -570,7 +536,7 @@ var registry = []ToolMeta{
 		LLMDescription: "copy an existing resource into the agent filesystem. " +
 			"Use when you need to inspect, transform, or combine a user-uploaded attachment or generated artifact with filesystem tools. " +
 			"source_uri must be a real URI already present in the conversation or tool result: artifact:<key> or attachment:<key>. " +
-			"target_path must be an absolute file path inside the active work directory; in sandbox runs this is often /workspace/input.png, while Desktop may use a local project folder. " +
+			"target_path must be an absolute file path inside the active work directory on the user's machine. " +
 			"The result includes file_path; reference that exact absolute file_path in Markdown when you want the user to open it. " +
 			"Do not call this just to show an existing file; link the exact absolute file_path already present. Do not invent resource keys or file paths.",
 	},
@@ -635,7 +601,7 @@ var registry = []ToolMeta{
 		Label:     "Timeline title",
 		ShortDesc: "set a label for the user-facing thinking timeline",
 		LLMDescription: "set a short label for the user-facing thinking timeline. " +
-			"Call only in parallel with tools that produce visible timeline entries (web_search, python_execute, exec_command, browser). " +
+			"Call only in parallel with tools that produce visible timeline entries (web_search, exec_command). " +
 			"Never call alone or alongside web_fetch only. " +
 			"Label: single-line plain text, same language as user input. " +
 			"Length: 8-16 Chinese characters or <=8 English words.",

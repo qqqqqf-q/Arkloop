@@ -22,21 +22,17 @@ func (r stubResolver) ResolvePrefix(_ context.Context, _ string, _ sharedconfig.
 func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 	memoryBaseURL := "http://memory.internal"
 	memoryKey := "memory-key"
-	sandboxBaseURL := "http://sandbox.internal/"
 
-	t.Setenv("ARKLOOP_SANDBOX_AUTH_TOKEN", "sandbox-token")
-	t.Setenv("ARKLOOP_SANDBOX_BASE_URL", "")
 	t.Setenv("ARKLOOP_MEMORY_PROVIDER", "")
 	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "")
 	t.Setenv("ARKLOOP_NOWLEDGE_API_KEY", "")
 
 	snapshot, err := BuildRuntimeSnapshot(context.Background(), SnapshotInput{
-		ConfigResolver:         stubResolver{values: map[string]string{"browser.enabled": "true"}},
+		ConfigResolver:         stubResolver{values: map[string]string{}},
 		HasConversationSearch:  true,
 		ArtifactStoreAvailable: true,
 		LoadPlatformProviders: func(context.Context) ([]ProviderConfig, error) {
 			return []ProviderConfig{
-				{GroupName: "sandbox", ProviderName: "sandbox.docker", BaseURL: &sandboxBaseURL},
 				{GroupName: "memory", ProviderName: "memory.nowledge", BaseURL: &memoryBaseURL, APIKeyValue: &memoryKey},
 			}, nil
 		},
@@ -44,23 +40,14 @@ func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRuntimeSnapshot returned error: %v", err)
 	}
-	if !snapshot.BrowserEnabled {
-		t.Fatal("expected browser enabled")
-	}
-	if snapshot.SandboxBaseURL != "http://sandbox.internal" {
-		t.Fatalf("unexpected sandbox base url: %q", snapshot.SandboxBaseURL)
-	}
-	if snapshot.SandboxAuthToken != "sandbox-token" {
-		t.Fatalf("unexpected sandbox auth token: %q", snapshot.SandboxAuthToken)
-	}
 	if snapshot.MemoryBaseURL != memoryBaseURL {
 		t.Fatalf("unexpected memory base url: %q", snapshot.MemoryBaseURL)
 	}
 	if snapshot.MemoryAPIKey != memoryKey {
 		t.Fatalf("unexpected memory key: %q", snapshot.MemoryAPIKey)
 	}
-	if !snapshot.BuiltinAvailable("browser") {
-		t.Fatal("expected browser builtin to be visible")
+	if !snapshot.BuiltinAvailable("exec_command") {
+		t.Fatal("expected exec_command builtin to be visible")
 	}
 	if !snapshot.BuiltinAvailable("memory_search") {
 		t.Fatal("expected memory_search builtin to be visible")
@@ -75,7 +62,6 @@ func TestBuildRuntimeSnapshotUsesNowledgeResolverConfig(t *testing.T) {
 
 	snapshot, err := BuildRuntimeSnapshot(context.Background(), SnapshotInput{
 		ConfigResolver: stubResolver{values: map[string]string{
-			"browser.enabled":             "false",
 			"nowledge.base_url":           "http://nowledge.internal",
 			"nowledge.api_key":            "nowledge-key",
 			"nowledge.request_timeout_ms": "41000",

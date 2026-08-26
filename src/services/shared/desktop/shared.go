@@ -45,8 +45,6 @@ var (
 	jobEnqueuer   JobEnqueuer
 	eventBus      any
 	workNotifier  any
-	sandboxAddr   string
-	executionMode string
 	memoryRuntime string
 	ready         chan struct{}
 	apiReady      chan struct{}
@@ -69,12 +67,6 @@ func GetEventBus() any  { mu.Lock(); defer mu.Unlock(); return eventBus }
 
 func SetWorkNotifier(n any) { mu.Lock(); workNotifier = n; mu.Unlock() }
 func GetWorkNotifier() any  { mu.Lock(); defer mu.Unlock(); return workNotifier }
-
-func SetSandboxAddr(addr string) { mu.Lock(); sandboxAddr = addr; mu.Unlock() }
-func GetSandboxAddr() string     { mu.Lock(); defer mu.Unlock(); return sandboxAddr }
-
-func SetExecutionMode(mode string) { mu.Lock(); executionMode = strings.TrimSpace(mode); mu.Unlock() }
-func GetExecutionMode() string     { mu.Lock(); defer mu.Unlock(); return strings.TrimSpace(executionMode) }
 
 func SetMemoryRuntime(mode string) { mu.Lock(); memoryRuntime = strings.TrimSpace(mode); mu.Unlock() }
 func GetMemoryRuntime() string     { mu.Lock(); defer mu.Unlock(); return strings.TrimSpace(memoryRuntime) }
