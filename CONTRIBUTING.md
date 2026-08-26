@@ -17,7 +17,7 @@ git clone https://github.com/qqqqqf-q/Arkloop.git
 cd Arkloop
 
 # Desktop runs embedded (SQLite in-process); no external infrastructure needed.
-# Optional modules (sandbox/searxng/firecrawl) start via their compose profiles.
+# Optional modules (searxng/firecrawl) start via their compose profiles.
 
 # Copy and configure environment
 cp .env.example .env
@@ -47,7 +47,6 @@ src/
     api/          # Core REST API (Go library)
     worker/       # Job execution engine (Go library)
     bridge/       # Module/container management (Go library)
-    sandbox/      # Code execution sandbox (Go)
     shared/       # Shared Go libraries
   personas/       # Agent persona templates
   plugins/        # Bundled plugins

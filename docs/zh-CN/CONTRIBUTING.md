@@ -17,7 +17,7 @@ git clone https://github.com/qqqqqf-q/Arkloop.git
 cd Arkloop
 
 # Desktop 内嵌运行（进程内 SQLite），无需外部基础设施。
-# 可选模块（sandbox/searxng/firecrawl）按各自 compose profile 启动。
+# 可选模块（searxng/firecrawl）按各自 compose profile 启动。
 
 # 复制并配置环境变量
 cp .env.example .env
@@ -47,7 +47,6 @@ src/
     api/          # 核心 REST API（Go 库）
     worker/       # 任务执行引擎（Go 库）
     bridge/       # 模块/容器管理（Go 库）
-    sandbox/      # 代码执行沙箱（Go）
     shared/       # Go 共享库
   personas/       # 智能体 Persona 模板
   plugins/        # 内置插件

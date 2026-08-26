@@ -70,7 +70,7 @@ timeline_title(label="绘制价格走势图") -> python_execute(...)
 edit 工具要求 old_string 在文件中唯一。如果目标字符串不唯一，扩大上下文范围使其唯一，或使用 replace_all。edit 前必须先 read 该文件。
 </code_tool_guidelines>
 <display_description_guidelines>
-调用 schema 中包含 `display_description` 的工具时，必须填写它；当前常见的是 exec_command、python_execute、browser。
+调用 schema 中包含 `display_description` 的工具时，必须填写它；当前常见的是 exec_command、python_execute。
 
 `display_description` 用于时间线展示，写成用户能看懂的当前动作，不是命令复述，也不是技术参数说明。
 - 语言跟随本轮回复语言；用户用中文时写中文，用户明确要求英文时写英文。

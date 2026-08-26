@@ -6,7 +6,7 @@
 
 - **Go**：1.26+（仓库根 `go.work` 统一管理 `src/services/` 下各模块）
 - **Node**：20+，包管理 **pnpm**（仓库根 `pnpm install`）
-- **Docker Compose**：仅用于可选模块（sandbox / SearXNG / Firecrawl），不是运行主程序的前提
+- **Docker Compose**：仅用于可选模块（SearXNG / Firecrawl），不是运行主程序的前提
 - `.env`：从 **`.env.example`** 复制，按需填写；桌面/单机默认配置通常开箱即用（SQLite 自动迁移）
 
 ## 从源码运行（两种路径）
@@ -42,7 +42,6 @@ Vite 开发服务器（默认 **5173**）将 `/v1` 代理到本地 API（默认 
 根目录 `compose.yaml` 只含可选模块，经 profile 启用：
 
 ```bash
-docker compose --profile docker-sandbox up -d   # Docker 容器沙箱（本机 19002）
 docker compose --profile searxng up -d          # 自托管搜索（web_search provider）
 docker compose --profile firecrawl up -d        # 自托管抓取（web_fetch provider）
 ```

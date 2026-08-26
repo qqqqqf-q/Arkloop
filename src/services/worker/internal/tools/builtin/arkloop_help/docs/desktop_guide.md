@@ -31,7 +31,7 @@ Desktop 是**单用户**应用：首次启动写入固定种子用户，本机�
 2. **模型供应商**：在设置内查找 **「供应商」** 或等价分组，添加 API Key（自带密钥，BYOK）、选择路由/模型。
 3. **频道 / 接入**：在设置内查找 **「接入」**、**「频道」** 或 Integrations 类入口，选择 Telegram 等平台，按向导填写 **Bot Token**（Telegram 来自 BotFather）并完成绑定；桌面端 Telegram 默认走 getUpdates 长轮询，无需公网 webhook。
 4. **记忆**：Notebook 默认启用；Nowledge 语义记忆需配置外部服务地址后启用（见 `architecture` 文档记忆小节）。
-5. **模块**：sandbox（Docker 代码执行）、SearXNG（搜索）、Firecrawl（抓取）为可选模块，在设置内安装/管理，由 Bridge 以 Docker 容器运行。
+5. **模块**：SearXNG（搜索）、Firecrawl（抓取）为可选模块，在设置内安装/管理，由 Bridge 以 Docker 容器运行。
 6. 若界面文案与上述不一致，**以用户屏幕上实际菜单名为准**，本帮助只提供**导航语义**（设置 → 分区 → 子项）。
 
 ## ark CLI

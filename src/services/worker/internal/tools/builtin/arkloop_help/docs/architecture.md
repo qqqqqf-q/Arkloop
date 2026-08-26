@@ -19,7 +19,7 @@ Arkloop 的后端是**一个 Go 进程**：**API + Worker + Bridge** 以**库**�
 |------|------|
 | `src/services/desktop` | 嵌入式运行时组合（API + Worker + Bridge） |
 | `src/services/cli` | `ark` 命令行（headless 入口、聊天、状态等子命令） |
-| `src/services/api` / `worker` / `bridge` / `sandbox` | 各领域库代码（`internal/` 下 DDD 风格） |
+| `src/services/api` / `worker` / `bridge` | 各领域库代码（`internal/` 下 DDD 风格） |
 | `src/services/shared` | 共享库：配置、SQLite 适配器、存储抽象等 |
 | `src/apps/desktop` | Electron 桌面壳 |
 | `src/apps/web` | Web 对话界面（React 19 / Vite 7 / Tailwind 4） |
@@ -77,7 +77,6 @@ Agent 执行器类型（persona.yaml 的 `executor_type`）：
 
 根目录 `compose.yaml` **只含可选模块**，经 `profiles` 启用，由 Bridge 管理：
 
-- **`docker-sandbox`**：Docker 容器沙箱（sandbox 服务，本机端口 **19002**），代码执行隔离。
 - **`searxng`**：自托管元搜索，`web_search` provider。
 - **`firecrawl`**：自托管网页抓取，`web_fetch` provider（模块内部自带其专用的 redis/postgres/rabbitmq，与主运行时无关）。
 

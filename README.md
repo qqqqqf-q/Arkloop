@@ -17,7 +17,7 @@
 
 ---
 
-Arkloop is a personal open-source project: a local-first platform for conversational AI agents. Multi-model routing, sandboxed execution, persistent memory — a clean desktop app that works out of the box.
+Arkloop is a personal open-source project: a local-first platform for conversational AI agents. Multi-model routing, persistent memory — a clean desktop app that works out of the box.
 
 Everything runs locally. The whole backend is a single embedded process with a SQLite database — no servers to deploy, no infrastructure to maintain.
 
@@ -60,7 +60,6 @@ Arkloop does what other AI chat tools do — multi-model support, tool calling, 
 
 - **Multi-Model Routing** — OpenAI, Anthropic, Gemini, and any OpenAI-compatible API; priority-based routing with your own keys
 - **Agent Runtime** — Built-in tools, MCP servers, and ClawHub skills; sub-agent spawning and scheduled jobs
-- **Sandboxed Execution** — Code runs in Docker containers with resource limits (optional module)
 - **Memory** — Plain-text notebook by default; optional Nowledge semantic memory; can be turned off entirely
 - **Channels** — Telegram, Discord, QQ, Feishu, and WeChat bots sharing the same agent pipeline, with scheduled heartbeat runs
 - **Custom Personas** — Independent system prompts, tool allowlists, budgets, and executor types
@@ -104,7 +103,7 @@ One embedded Go process is the whole backend: API, worker, and bridge are librar
 | Web | React / TypeScript | Chat UI, bundled into the desktop app and served by `ark web` |
 | CLI | Go | `ark` — headless entrypoint to the same runtime |
 
-Optional modules (sandbox, SearXNG, Firecrawl) run as Docker containers via compose profiles.
+Optional modules (SearXNG, Firecrawl) run as Docker containers via compose profiles.
 
 ## Development
 
