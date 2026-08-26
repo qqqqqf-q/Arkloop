@@ -6,38 +6,6 @@
 modules:
   # ── Optional ─────────────────────────────────────────────────
 
-  sandbox-docker:
-    category: optional
-    description: Code execution sandbox (Docker backend)
-    compose_service: sandbox-docker
-    compose_profile: docker-sandbox
-    platform_constraints:
-      requires_docker: true
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: true
-      external_admin_supported: false
-      privileged_required: false
-
-  browser:
-    category: optional
-    description: Browser automation (Node + Chromium, as Sandbox browser tier)
-    compose_service: sandbox-docker
-    compose_profile: docker-sandbox
-    depends_on: [sandbox-docker]
-    virtual: true
-    platform_constraints:
-      requires_docker: true
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-
   searxng:
     category: optional
     description: Self-hosted metasearch engine (replaces Tavily API for web_search)

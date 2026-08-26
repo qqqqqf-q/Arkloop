@@ -108,8 +108,6 @@ def parse_modules(path: str) -> Dict[str, dict]:
 
 ALLOWED = {
     "profile": {"standard", "full"},
-    "sandbox": {"none", "docker", "auto"},
-    "browser": {"off", "on"},
     "web_tools": {"builtin", "self-hosted"},
 }
 
@@ -125,18 +123,8 @@ def normalize_choice(value: str, field: str) -> str:
 
 def default_selections(profile: str) -> dict:
     if profile == "full":
-        defaults = {
-            "sandbox": "docker",
-            "browser": "off",
-            "web_tools": "self-hosted",
-        }
-    else:
-        defaults = {
-            "sandbox": "none",
-            "browser": "off",
-            "web_tools": "builtin",
-        }
-    return defaults
+        return {"web_tools": "self-hosted"}
+    return {"web_tools": "builtin"}
 
 
 def ordered_unique(items: List[str]) -> List[str]:
@@ -153,22 +141,10 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
     profile = normalize_choice(args.profile or "standard", "profile")
     defaults = default_selections(profile)
 
-    sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
-    if sandbox == "auto":
-        # auto 不再探测宿主：Firecracker 已移除，唯一可选后端即 docker
-        sandbox = "docker"
-    browser = normalize_choice(args.browser or defaults["browser"], "browser")
     web_tools = normalize_choice(args.web_tools or defaults["web_tools"], "web_tools")
-
-    if browser == "on" and sandbox != "docker":
-        raise ValueError("browser=on 仅支持 sandbox=docker")
 
     selected: List[str] = []
 
-    if sandbox == "docker":
-        selected.append("sandbox-docker")
-    if browser == "on":
-        selected.append("browser")
     if web_tools == "self-hosted":
         selected.extend(["searxng", "firecrawl"])
 
@@ -217,8 +193,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
 
     return {
         "profile": profile,
-        "sandbox": sandbox,
-        "browser": browser,
         "web_tools": web_tools,
         "selected_modules": resolved_modules,
         "compose_services": compose_services,
@@ -234,8 +208,6 @@ def shell_quote(value: str) -> str:
 def emit_shell(plan: dict):
     scalars = [
         ("RESOLVED_PROFILE", plan["profile"]),
-        ("RESOLVED_SANDBOX", plan["sandbox"]),
-        ("RESOLVED_BROWSER", plan["browser"]),
         ("RESOLVED_WEB_TOOLS", plan["web_tools"]),
     ]
     for key, value in scalars:
@@ -257,8 +229,6 @@ def build_parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser("resolve")
     resolve.add_argument("--modules", default=os.path.join(os.getcwd(), "install", "modules.yaml"))
     resolve.add_argument("--profile", default="")
-    resolve.add_argument("--sandbox", default="")
-    resolve.add_argument("--browser", default="")
     resolve.add_argument("--web-tools", dest="web_tools", default="")
     resolve.add_argument("--host-os", choices=["linux", "macos", "wsl2"], default="macos")
     resolve.add_argument("--format", choices=["shell"], default="shell")
