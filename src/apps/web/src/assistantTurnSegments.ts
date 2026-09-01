@@ -16,6 +16,7 @@ import {
   type CopBlockItem,
   type TurnToolCallRef,
   type WorkGroup,
+  type WorkGroupSplit,
 } from '../../shared/src/assistantTurn'
 import {
   agentEventDataRecord,
@@ -40,6 +41,15 @@ export {
   type CopBlockItem,
   type TurnToolCallRef,
   type WorkGroup,
+  type WorkGroupSplit,
+}
+
+export function isAssistantTurnSegmentLive(
+  currentRunMessageLive: boolean,
+  originalIndex: number,
+  segmentCount: number,
+): boolean {
+  return currentRunMessageLive && originalIndex === segmentCount - 1
 }
 
 function toAssistantTurnEventType(type: string): string {
