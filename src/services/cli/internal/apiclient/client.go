@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -18,11 +19,15 @@ const (
 )
 
 // Client 连接 Desktop API 的 HTTP 客户端。
+// desktop token 只用于在本机换取 access token，不能直接访问 API。
 type Client struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client // 用于普通 JSON 请求，10s 超时
-	sseClient  *http.Client // 用于 SSE 流，header 超时 10s，body 无超时
+	baseURL      string
+	desktopToken string
+	httpClient   *http.Client // 用于普通 JSON 请求，10s 超时
+	sseClient    *http.Client // 用于 SSE 流，header 超时 10s，body 无超时
+
+	sessionMu   sync.Mutex
+	accessToken string
 }
 
 // RunParams 创建 run 时的可选参数，零值字段不序列化。
@@ -82,11 +87,11 @@ type Run struct {
 	Status   string `json:"status"`
 }
 
-// NewClient 构造客户端，baseURL 和 token 必须非空。
-func NewClient(baseURL, token string) *Client {
+// NewClient 构造客户端，baseURL 和 desktopToken 必须非空。
+func NewClient(baseURL, desktopToken string) *Client {
 	return &Client{
-		baseURL: baseURL,
-		token:   token,
+		baseURL:      baseURL,
+		desktopToken: desktopToken,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -248,14 +253,14 @@ func (c *Client) StartRun(ctx context.Context, threadID string, params RunParams
 func (c *Client) OpenEventStream(ctx context.Context, runID string, afterSeq int64) (io.ReadCloser, error) {
 	url := fmt.Sprintf("%s/v1/runs/%s/events?follow=true&after_seq=%d", c.baseURL, runID, afterSeq)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("open event stream: build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.sseClient.Do(req)
+	resp, err := c.doAuthorized(ctx, c.sseClient, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open event stream: %w", err)
 	}
@@ -268,27 +273,31 @@ func (c *Client) OpenEventStream(ctx context.Context, runID string, afterSeq int
 
 // doJSON 执行一次 JSON 请求。out 为 nil 时不解析响应体。
 func (c *Client) doJSON(ctx context.Context, method, path string, in any, out any) error {
-	var bodyReader io.Reader
+	var payload []byte
 	if in != nil {
 		data, err := json.Marshal(in)
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
-		bodyReader = bytes.NewReader(data)
+		payload = data
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+	resp, err := c.doAuthorized(ctx, c.httpClient, func() (*http.Request, error) {
+		var bodyReader io.Reader
+		if payload != nil {
+			bodyReader = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+		if err != nil {
+			return nil, err
+		}
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, nil
+	})
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -303,4 +312,88 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in any, out an
 		}
 	}
 	return nil
+}
+
+// doAuthorized 带 access token 发送请求；401 时重新换取一次后重试。
+func (c *Client) doAuthorized(ctx context.Context, hc *http.Client, build func() (*http.Request, error)) (*http.Response, error) {
+	token, err := c.currentAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.send(hc, build, token)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		return resp, err
+	}
+	_ = resp.Body.Close()
+
+	token, err = c.renewAccessToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return c.send(hc, build, token)
+}
+
+func (c *Client) send(hc *http.Client, build func() (*http.Request, error), token string) (*http.Response, error) {
+	req, err := build()
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	return resp, nil
+}
+
+func (c *Client) currentAccessToken(ctx context.Context) (string, error) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if c.accessToken != "" {
+		return c.accessToken, nil
+	}
+	return c.exchangeLocked(ctx)
+}
+
+// renewAccessToken 只在 token 仍是失效的那一个时才重新换取，避免并发请求重复换。
+func (c *Client) renewAccessToken(ctx context.Context, stale string) (string, error) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if c.accessToken != "" && c.accessToken != stale {
+		return c.accessToken, nil
+	}
+	return c.exchangeLocked(ctx)
+}
+
+func (c *Client) exchangeLocked(ctx context.Context) (string, error) {
+	if c.desktopToken == "" {
+		return "", fmt.Errorf("local session: desktop token not found (~/.arkloop/desktop.token)")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/auth/local-session", nil)
+	if err != nil {
+		return "", fmt.Errorf("local session: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.desktopToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("local session: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("local session: http %d: %s", resp.StatusCode, string(raw))
+	}
+	var body struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("local session: decode response: %w", err)
+	}
+	if body.AccessToken == "" {
+		return "", fmt.Errorf("local session: empty access token")
+	}
+	c.accessToken = body.AccessToken
+	return c.accessToken, nil
 }

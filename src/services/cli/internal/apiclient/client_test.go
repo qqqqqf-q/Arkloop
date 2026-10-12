@@ -13,9 +13,68 @@ import (
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
-	server := httptest.NewServer(handler)
+	server := httptest.NewServer(withLocalSession(handler))
 	t.Cleanup(server.Close)
 	return NewClient(server.URL, "test-token")
+}
+
+func withLocalSession(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/local-session" {
+			_, _ = w.Write([]byte(`{"access_token":"test-access","token_type":"bearer"}`))
+			return
+		}
+		next(w, r)
+	}
+}
+
+func TestExchangesDesktopTokenForAccessToken(t *testing.T) {
+	var sessions int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/local-session":
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer desktop-token" {
+				t.Fatalf("unexpected session request: %s %q", r.Method, r.Header.Get("Authorization"))
+			}
+			sessions++
+			_, _ = fmt.Fprintf(w, `{"access_token":"access-%d","token_type":"bearer"}`, sessions)
+		case "/v1/me":
+			// 第一个 access token 视为过期，验证 401 后会重新换取并重试。
+			if r.Header.Get("Authorization") != "Bearer access-2" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":"u1","username":"qq"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "desktop-token")
+	got, err := client.GetMe(context.Background())
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if got.Username != "qq" || sessions != 2 {
+		t.Fatalf("unexpected result: me=%+v sessions=%d", got, sessions)
+	}
+}
+
+func TestLocalSessionRejectionIsReported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/local-session" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "test-token")
+	_, err := client.GetMe(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "local session: http 401") {
+		t.Fatalf("expected local session error, got %v", err)
+	}
 }
 
 func TestGetMe(t *testing.T) {

@@ -154,6 +154,10 @@ func newRunnerTestClient(t *testing.T, handler func(*runnerTestServer, http.Resp
 	t.Helper()
 	serverState := &runnerTestServer{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/local-session" {
+			_, _ = w.Write([]byte(`{"access_token":"test-access","token_type":"bearer"}`))
+			return
+		}
 		serverState.mu.Lock()
 		defer serverState.mu.Unlock()
 		handler(serverState, w, r)

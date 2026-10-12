@@ -16,7 +16,13 @@ import (
 
 func newTestREPL(t *testing.T, handler http.HandlerFunc) (*REPL, *bytes.Buffer) {
 	t.Helper()
-	server := httptest.NewServer(handler)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/local-session" {
+			_, _ = w.Write([]byte(`{"access_token":"test-access","token_type":"bearer"}`))
+			return
+		}
+		handler(w, r)
+	}))
 	t.Cleanup(server.Close)
 
 	client := apiclient.NewClient(server.URL, "test-token")
