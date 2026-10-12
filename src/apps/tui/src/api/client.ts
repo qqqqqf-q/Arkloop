@@ -2,6 +2,7 @@ import type { Config } from "../lib/config"
 import type {
   CreateMessageRequest,
   LlmProvider,
+  LoginResponse,
   Me,
   Persona,
   Run,
@@ -12,6 +13,9 @@ import type {
 } from "./types"
 
 export class ApiClient {
+  private accessToken: string | null = null
+  private sessionPromise: Promise<string> | null = null
+
   constructor(private config: Config) {}
 
   sseTraceEnabled(): boolean {
@@ -25,9 +29,6 @@ export class ApiClient {
   ): Promise<T> {
     const url = `${this.config.host}${path}`
     const headers: Record<string, string> = { ...(options?.headers ?? {}) }
-    if (this.config.token) {
-      headers["Authorization"] = `Bearer ${this.config.token}`
-    }
 
     let body: RequestInit["body"]
     if (isRequestBody(options?.body)) {
@@ -37,12 +38,12 @@ export class ApiClient {
       body = JSON.stringify(options.body)
     }
 
-    const res = await fetch(url, {
+    const res = await this.authorizedFetch(url, () => ({
       method,
       headers,
       body,
       signal: AbortSignal.timeout(10_000),
-    })
+    }))
 
     if (!res.ok) {
       const text = await res.text().catch(() => "")
@@ -102,13 +103,51 @@ export class ApiClient {
   /** Returns a ReadableStream of SSE events */
   async streamEvents(runId: string, afterSeq = 0): Promise<Response> {
     const url = `${this.config.host}/v1/runs/${runId}/events?follow=true&after_seq=${afterSeq}`
-    const headers: Record<string, string> = {
-      "Accept": "text/event-stream",
+    return this.authorizedFetch(url, () => ({
+      headers: { "Accept": "text/event-stream" },
+    }))
+  }
+
+  // desktop token 只能在本机换 access token,不能直接访问 API;过期时重新换一次。
+  private async authorizedFetch(url: string, init: () => RequestInit): Promise<Response> {
+    const send = async (token: string) => {
+      const req = init()
+      const headers = new Headers(req.headers)
+      headers.set("Authorization", `Bearer ${token}`)
+      return fetch(url, { ...req, headers })
     }
-    if (this.config.token) {
-      headers["Authorization"] = `Bearer ${this.config.token}`
+
+    const res = await send(this.accessToken ?? await this.refreshSession())
+    if (res.status !== 401) return res
+    await res.body?.cancel()
+    return send(await this.refreshSession())
+  }
+
+  private refreshSession(): Promise<string> {
+    if (!this.sessionPromise) {
+      this.sessionPromise = this.requestLocalSession().finally(() => {
+        this.sessionPromise = null
+      })
     }
-    return fetch(url, { headers })
+    return this.sessionPromise
+  }
+
+  private async requestLocalSession(): Promise<string> {
+    if (!this.config.desktopToken) {
+      throw new Error("desktop token not found (~/.arkloop/desktop.token)")
+    }
+    const res = await fetch(`${this.config.host}/v1/auth/local-session`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${this.config.desktopToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`API POST /v1/auth/local-session: ${res.status} ${text}`)
+    }
+    const data = await res.json() as LoginResponse
+    this.accessToken = data.access_token
+    return data.access_token
   }
 }
 

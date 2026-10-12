@@ -4,7 +4,7 @@ import { homedir } from "node:os"
 
 export interface Config {
   host: string
-  token: string
+  desktopToken: string
   debugSSE: boolean
 }
 
@@ -89,7 +89,7 @@ export function parseFlags(argv: string[]): CLIFlags {
 export function resolveConfig(flags: CLIFlags): Config {
   return {
     host: resolveHost(flags.host),
-    token: resolveToken(flags.token),
+    desktopToken: resolveToken(flags.token),
     debugSSE: resolveDebugSSE(flags.debugSSE),
   }
 }

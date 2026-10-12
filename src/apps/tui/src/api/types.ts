@@ -5,6 +5,11 @@ export interface Me {
   work_enabled: boolean
 }
 
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+}
+
 export interface Persona {
   id: string
   persona_key: string
