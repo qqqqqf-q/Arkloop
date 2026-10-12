@@ -40,6 +40,8 @@ mac:
   extraResources:
     - from: sidecar-bin/desktop-darwin-${arch}
       to: sidecar/desktop
+    - from: sidecar-bin/activity-record-darwin-${arch}
+      to: sidecar/activity-record
     - from: cli-bin/ark-darwin-${arch}
       to: cli/ark
 
@@ -54,6 +56,8 @@ linux:
   extraResources:
     - from: sidecar-bin/desktop-linux-${arch}
       to: sidecar/desktop
+    - from: sidecar-bin/activity-record-linux-${arch}
+      to: sidecar/activity-record
     - from: cli-bin/ark-linux-${arch}
       to: cli/ark
 
@@ -69,6 +73,8 @@ win:
   extraResources:
     - from: sidecar-bin/desktop-win32-${arch}.exe
       to: sidecar/desktop.exe
+    - from: sidecar-bin/activity-record-win32-${arch}.exe
+      to: sidecar/activity-record.exe
     - from: cli-bin/ark-win32-${arch}.exe
       to: cli/ark.exe
 

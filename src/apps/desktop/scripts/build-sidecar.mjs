@@ -89,7 +89,7 @@ function buildTarget({ platform, arch }) {
       ...process.env,
       GOOS: goos,
       GOARCH: goarch,
-      CGO_ENABLED: '0',
+      CGO_ENABLED: cgoEnabled,
     },
   })
 

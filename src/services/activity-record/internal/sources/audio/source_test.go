@@ -106,3 +106,72 @@ func TestIsMusicSilenceNotMusic(t *testing.T) {
 		t.Fatalf("pure silence classified as music")
 	}
 }
+
+func TestResolveDevices(t *testing.T) {
+	available := []CaptureDeviceInfo{
+		{ID: "id-builtin", Name: "MacBook Pro Microphone", IsDefault: true},
+		{ID: "id-usb", Name: "USB Audio Device"},
+	}
+	tests := []struct {
+		name      string
+		want      []string
+		wantNames []string
+		wantSlugs []string
+		wantErr   bool
+	}{
+		{"empty means default", nil, []string{"default"}, []string{"default"}, false},
+		{"explicit default", []string{"default"}, []string{"default"}, []string{"default"}, false},
+		{"all enumerates", []string{"all"}, []string{"MacBook Pro Microphone", "USB Audio Device"}, []string{"default", "usb-audio-device"}, false},
+		{"by name", []string{"USB Audio Device"}, []string{"USB Audio Device"}, []string{"usb-audio-device"}, false},
+		{"default device keeps stable slug", []string{"MacBook Pro Microphone"}, []string{"MacBook Pro Microphone"}, []string{"default"}, false},
+		{"unknown name errors", []string{"No Such Mic"}, nil, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			refs, err := resolveDevices(tt.want, available)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got refs %v", refs)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(refs) != len(tt.wantNames) {
+				t.Fatalf("got %d refs, want %d", len(refs), len(tt.wantNames))
+			}
+			for i, ref := range refs {
+				if ref.name != tt.wantNames[i] || ref.slug != tt.wantSlugs[i] {
+					t.Fatalf("ref %d = (%q, %q), want (%q, %q)", i, ref.name, ref.slug, tt.wantNames[i], tt.wantSlugs[i])
+				}
+			}
+		})
+	}
+}
+
+func TestResolveDevicesAllEmpty(t *testing.T) {
+	if _, err := resolveDevices([]string{"all"}, nil); err == nil {
+		t.Fatalf("all with no devices should error")
+	}
+}
+
+func TestDeviceSlug(t *testing.T) {
+	tests := []struct{ name, want string }{
+		{"USB Audio Device", "usb-audio-device"},
+		{"MacBook Pro Microphone", "macbook-pro-microphone"},
+		{"  Weird  Mic (2)! ", "weird-mic-2"},
+	}
+	for _, tt := range tests {
+		if got := deviceSlug(tt.name); got != tt.want {
+			t.Fatalf("deviceSlug(%q) = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+	if got := deviceSlug("内置麦克风"); got == "" || got == "-" {
+		t.Fatalf("non-ascii name should still produce a slug, got %q", got)
+	}
+	// 同名同输入必须稳定
+	if deviceSlug("内置麦克风") != deviceSlug("内置麦克风") {
+		t.Fatalf("slug not stable for non-ascii name")
+	}
+}

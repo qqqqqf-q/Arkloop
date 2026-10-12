@@ -114,7 +114,7 @@ func (e *Enabler) InstallRuntime(ctx context.Context, req EnableRequest) (data.P
 	settings := map[string]any{}
 	enabled := false
 	if enablement, getErr := e.enablementsRepo.Get(ctx, req.AccountID, pkg.ID, profileRef, workspaceRef); getErr == nil && enablement != nil {
-		settings = decodePluginJSONMap(enablement.SettingsJSON)
+		settings = stripUnknownSettings(decodePluginJSONMap(enablement.SettingsJSON), manifest)
 		enabled = enablement.Enabled
 	}
 	_, settings, err = normalizeSettings(settings, manifest)

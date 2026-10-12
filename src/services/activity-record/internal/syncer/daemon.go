@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -37,6 +38,7 @@ type DaemonOptions struct {
 	AudioAPIKey   string
 	AudioModel    string
 	AudioLanguage string
+	AudioDevices  []string
 }
 
 func Daemon(ctx context.Context, opts DaemonOptions) error {
@@ -57,6 +59,11 @@ func Daemon(ctx context.Context, opts DaemonOptions) error {
 		return err
 	}
 	defer os.Remove(pidPath)
+	statusPath := filepath.Join(opts.DataDir, "daemon-status.json")
+	if err := writeDaemonStatus(statusPath); err != nil {
+		return err
+	}
+	defer os.Remove(statusPath)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -193,6 +200,7 @@ func buildDaemonSource(name string, opts DaemonOptions) (DaemonSource, error) {
 			APIKey:   opts.AudioAPIKey,
 			Model:    opts.AudioModel,
 			Language: opts.AudioLanguage,
+			Devices:  opts.AudioDevices,
 		}), nil
 	default:
 		return nil, errUnknownSource(name)
@@ -204,4 +212,18 @@ func writePID(path string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
+}
+
+func writeDaemonStatus(path string) error {
+	payload, err := json.MarshalIndent(map[string]any{
+		"pid":            os.Getpid(),
+		"started_at":     time.Now().UTC().Format(time.RFC3339),
+		"ax_permission":  ax.CheckAXPermission(),
+		"mic_permission": audio.CheckMicPermission(),
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	return os.WriteFile(path, payload, 0o644)
 }

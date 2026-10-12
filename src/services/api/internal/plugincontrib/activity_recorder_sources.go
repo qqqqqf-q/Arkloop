@@ -36,12 +36,13 @@ func prepareActivityRecorderSources(ctx context.Context, pluginID string, settin
 	stopLegacyContextInitialSync(runtimeState)
 	activityRecordEnabled := settingBoolDefault(settings, "enable_activity_record", true)
 	if activityRecordEnabled {
-		prepareActivityRecord(settings, runtimeState)
+		prepareActivityRecord(ctx, settings, runtimeState)
+	} else {
+		stopActivityRecorderSources(ctx, pluginID, runtimeState)
 	}
-	_ = ctx
 }
 
-func prepareActivityRecord(settings map[string]any, runtimeState map[string]any) {
+func prepareActivityRecord(ctx context.Context, settings map[string]any, runtimeState map[string]any) {
 	prefix := "activity_record."
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -61,8 +62,10 @@ func prepareActivityRecord(settings map[string]any, runtimeState map[string]any)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		runtimeState[prefix+"db_error"] = err.Error()
 	}
-	startActivityRecordDaemon(settings, runtimeState, dataDir)
-	checkActivityRecordAXPermission(runtimeState)
+	startActivityRecordDaemon(ctx, settings, runtimeState, dataDir)
+	if runtime.GOOS != "darwin" {
+		checkActivityRecordAXPermission(runtimeState)
+	}
 }
 
 func clearActivityRecordDaemonIfStopped(runtimeState map[string]any) {
@@ -78,7 +81,7 @@ func clearActivityRecordDaemonIfStopped(runtimeState map[string]any) {
 	}
 }
 
-func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]any, dataDir string) {
+func startActivityRecordDaemon(ctx context.Context, settings map[string]any, runtimeState map[string]any, dataDir string) {
 	key := "activity_record.daemon"
 	prefix := key + "."
 	delete(runtimeState, prefix+"error")
@@ -138,6 +141,14 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 		if lang := stringSettingDefault(settings, "audio_transcription_language", ""); lang != "" {
 			args = append(args, "--audio-language", lang)
 		}
+		if devices := stringSettingDefault(settings, "audio_devices", ""); devices != "" {
+			args = append(args, "--audio-devices", devices)
+		}
+	}
+
+	if runtime.GOOS == "darwin" {
+		installActivityRecordLaunchAgent(ctx, cmdParts, args, settings, runtimeState, dataDir)
+		return
 	}
 
 	// 指纹 = 二进制 + 完整参数。刷新(参数不变)复用现有进程,配置变更才重启。
@@ -208,6 +219,129 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	go func() {
 		_ = cmd.Wait()
 	}()
+}
+
+func installActivityRecordLaunchAgent(ctx context.Context, cmdParts, daemonArgs []string, settings, runtimeState map[string]any, dataDir string) {
+	key := "activity_record.daemon"
+	prefix := key + "."
+	commandPrefixLength := len(cmdParts) - 1
+	if len(daemonArgs) <= commandPrefixLength || daemonArgs[commandPrefixLength] != "daemon" {
+		runtimeState[prefix+"status"] = "error"
+		runtimeState[prefix+"error"] = "invalid activity-record daemon command"
+		return
+	}
+	serviceArgs := append([]string{}, cmdParts[1:]...)
+	serviceArgs = append(serviceArgs, "service", "install")
+	serviceArgs = append(serviceArgs, daemonArgs[commandPrefixLength+1:]...)
+
+	activityDaemonMu.Lock()
+	defer activityDaemonMu.Unlock()
+	installCtx, cancel := context.WithTimeout(detachedContext(ctx), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(installCtx, cmdParts[0], serviceArgs...)
+	cmd.Env = os.Environ()
+	if settingBool(settings, "enable_audio_transcription") {
+		if apiKey := stringSettingDefault(settings, "audio_transcription_api_key", ""); apiKey != "" {
+			cmd.Env = append(cmd.Env, "ARKLOOP_AUDIO_TRANSCRIPTION_API_KEY="+apiKey)
+		}
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		runtimeState[prefix+"status"] = "error"
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		runtimeState[prefix+"error"] = message
+		return
+	}
+	var status struct {
+		Running       bool   `json:"running"`
+		PID           int    `json:"pid"`
+		ConfigPath    string `json:"config_path"`
+		PlistPath     string `json:"plist_path"`
+		LogPath       string `json:"log_path"`
+		AXPermission  *bool  `json:"ax_permission"`
+		MicPermission *bool  `json:"mic_permission"`
+	}
+	if err := json.Unmarshal(output, &status); err != nil {
+		runtimeState[prefix+"status"] = "error"
+		runtimeState[prefix+"error"] = fmt.Sprintf("decode activity-record service status: %v", err)
+		return
+	}
+	if !status.Running || status.PID <= 0 {
+		runtimeState[prefix+"status"] = "error"
+		runtimeState[prefix+"error"] = "activity-record service did not report a running process"
+		return
+	}
+	activityDaemonPID = status.PID
+	activityDaemonFingerprint = "launchd:" + status.ConfigPath
+	runtimeState[prefix+"pid"] = status.PID
+	runtimeState[prefix+"status"] = "running"
+	runtimeState[prefix+"service"] = "launchd"
+	runtimeState[prefix+"config_path"] = status.ConfigPath
+	runtimeState[prefix+"plist_path"] = status.PlistPath
+	runtimeState[prefix+"log_path"] = status.LogPath
+	runtimeState[prefix+"data_dir"] = dataDir
+	if status.AXPermission != nil {
+		runtimeState["activity_record.ax_permission"] = *status.AXPermission
+	}
+	if status.MicPermission != nil {
+		runtimeState["activity_record.mic_permission"] = *status.MicPermission
+	}
+	delete(runtimeState, prefix+"error")
+}
+
+func stopActivityRecorderSources(ctx context.Context, pluginID string, runtimeState map[string]any) {
+	if pluginID != activityRecorderPluginID {
+		return
+	}
+	key := "activity_record.daemon"
+	prefix := key + "."
+	if runtime.GOOS == "darwin" {
+		cmdParts, err := activityRecordCommand()
+		if err != nil {
+			runtimeState[prefix+"status"] = "error"
+			runtimeState[prefix+"error"] = err.Error()
+			return
+		}
+		dataDir := stringFromPluginMap(runtimeState, "activity_record.data_dir")
+		if dataDir == "" {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				runtimeState[prefix+"status"] = "error"
+				runtimeState[prefix+"error"] = homeErr.Error()
+				return
+			}
+			dataDir = filepath.Join(home, ".Arkloop", "activity-record")
+		}
+		args := append([]string{}, cmdParts[1:]...)
+		args = append(args, "service", "uninstall", "--data-dir", dataDir)
+		stopCtx, cancel := context.WithTimeout(detachedContext(ctx), 20*time.Second)
+		defer cancel()
+		output, stopErr := exec.CommandContext(stopCtx, cmdParts[0], args...).CombinedOutput()
+		if stopErr != nil {
+			runtimeState[prefix+"status"] = "error"
+			message := strings.TrimSpace(string(output))
+			if message == "" {
+				message = stopErr.Error()
+			}
+			runtimeState[prefix+"error"] = message
+			return
+		}
+	} else {
+		activityDaemonMu.Lock()
+		if activityDaemonPID != 0 && processRunning(activityDaemonPID) {
+			_ = killDaemonProcess(activityDaemonPID)
+		}
+		activityDaemonPID = 0
+		activityDaemonFingerprint = ""
+		activityDaemonMu.Unlock()
+	}
+	delete(runtimeState, prefix+"pid")
+	delete(runtimeState, prefix+"error")
+	runtimeState[prefix+"status"] = "disabled"
+	runtimeState[prefix+"stopped_at"] = time.Now().UTC().Format(time.RFC3339)
 }
 
 func activityRecordCommand() ([]string, error) {

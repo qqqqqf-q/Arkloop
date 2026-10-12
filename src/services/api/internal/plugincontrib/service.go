@@ -566,6 +566,7 @@ func (e *Enabler) apply(ctx context.Context, req EnableRequest, toggle bool) (da
 		startRuntimeDaemons(ctx, manifest, settings, runtimeState)
 	} else if toggle {
 		stopRuntimeDaemons(ctx, manifest, runtimeState)
+		stopActivityRecorderSources(ctx, pkg.PluginID, runtimeState)
 	}
 	tx, err := e.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
