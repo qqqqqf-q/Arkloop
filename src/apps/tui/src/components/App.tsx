@@ -8,7 +8,6 @@ import { createRunHandler } from "../hooks/useRun"
 import { useKeybindings } from "../hooks/useKeybindings"
 import { applyCurrentModel, applyCurrentPersona, currentModel, currentPersona, focusInput, overlay } from "../store/app"
 import { defaultModel, listFlatModels } from "../lib/models"
-import { tuiTheme } from "../lib/theme"
 import { handleSlashCommand } from "../lib/commands"
 import { readLastModel } from "../lib/threadMode"
 import type { MessageComposePayload } from "../api/types"
@@ -43,7 +42,6 @@ export function App(props: Props) {
       flexDirection="column"
       width="100%"
       height="100%"
-      backgroundColor={tuiTheme.background}
       onMouseOver={() => {
         if (!overlay()) focusInput()
       }}

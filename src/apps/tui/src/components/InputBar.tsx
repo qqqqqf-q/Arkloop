@@ -6,7 +6,7 @@ import { effortSymbol, formatEffort } from "../lib/effort"
 import { addEntry, historyDown, historyUp, loadHistory, saveHistory } from "../lib/history"
 import { streaming } from "../store/chat"
 import { CHAT_CONTENT_GUTTER, CHAT_PREFIX_WIDTH } from "../lib/chatLayout"
-import { tuiTheme } from "../lib/theme"
+import { activeText, tuiTheme } from "../lib/theme"
 import { resolvePastedImage } from "../lib/clipboard"
 import {
   connected,
@@ -277,7 +277,6 @@ export function InputBar(props: Props) {
       zIndex={40}
       width="100%"
       flexDirection="column"
-      backgroundColor={tuiTheme.background}
     >
       <box
         position="relative"
@@ -285,7 +284,6 @@ export function InputBar(props: Props) {
         flexDirection="column"
         border={["top", "bottom"]}
         borderColor={tuiTheme.borderSubtle}
-        backgroundColor={tuiTheme.background}
         onMouseOver={() => input?.focus()}
         onMouseDown={() => input?.focus()}
       >
@@ -312,8 +310,8 @@ export function InputBar(props: Props) {
                       paddingRight={2}
                       backgroundColor={active() ? tuiTheme.primary : tuiTheme.panel}
                     >
-                      <text content={item.command} fg={active() ? tuiTheme.background : tuiTheme.text} />
-                      <text content={item.description} fg={active() ? tuiTheme.background : tuiTheme.textMuted} />
+                      <text content={item.command} fg={active() ? activeText : tuiTheme.text} />
+                      <text content={item.description} fg={active() ? activeText : tuiTheme.textMuted} />
                     </box>
                   )
                 }}
@@ -372,7 +370,7 @@ export function InputBar(props: Props) {
               placeholderColor={tuiTheme.textMuted}
               textColor={tuiTheme.text}
               focusedTextColor={tuiTheme.text}
-              focusedBackgroundColor={tuiTheme.background}
+              focusedBackgroundColor="transparent"
               cursorColor={tuiTheme.primary}
               width="100%"
               minHeight={1}
@@ -421,7 +419,7 @@ export function InputBar(props: Props) {
           </Show>
         </box>
       </box>
-      <box width="100%" height={1} backgroundColor={tuiTheme.background} />
+      <box width="100%" height={1} />
     </box>
   )
 }

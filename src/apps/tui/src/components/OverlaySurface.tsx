@@ -17,7 +17,6 @@ export function OverlaySurface(props: ParentProps<Props>) {
       height="100%"
       alignItems="center"
       justifyContent="center"
-      backgroundColor={tuiTheme.overlay}
     >
       <box width={props.width ?? 84} maxWidth="92%" flexDirection="column" backgroundColor={tuiTheme.panel}>
         <box

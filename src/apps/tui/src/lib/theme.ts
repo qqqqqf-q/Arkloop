@@ -2,7 +2,6 @@ import { RGBA } from "@opentui/core"
 
 export const tuiTheme = {
   // Temporary Terra dark mapping for TUI evaluation.
-  background: RGBA.fromHex("#262624"),
   panel: RGBA.fromHex("#1E1D1B"),
   element: RGBA.fromHex("#141413"),
   border: RGBA.fromHex("#5e5d55"),
@@ -18,7 +17,7 @@ export const tuiTheme = {
   warning: RGBA.fromHex("#fbbf24"),
   error: RGBA.fromHex("#f87171"),
   info: RGBA.fromHex("#a8bcc8"),
-  overlay: RGBA.fromInts(0, 0, 0, 153),
 }
 
-export const activeText = tuiTheme.background
+// 选中行以 primary 为底，文字用深色保证对比度。
+export const activeText = RGBA.fromHex("#262624")
