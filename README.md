@@ -124,7 +124,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Security
 
-To report vulnerabilities, please email qingf622@outlook.com instead of opening a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
+To report vulnerabilities, please email qff45688@gmail.com instead of opening a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
 
 ## License
 
