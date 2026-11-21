@@ -125,7 +125,7 @@ bin/ci-local quick                     # 本地 CI
 
 ## 安全
 
-报告安全漏洞请发送邮件至 qingf622@outlook.com，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
+报告安全漏洞请发送邮件至 qff45688@gmail.com，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
 
 ## 许可证
 
